@@ -1,182 +1,129 @@
 # dsh-plugins
 
-A collection of [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)
-plugins, delivered as **one bundle**.
+[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的一套插件，作为**一个 bundle** 提供。
 
-| Plugin | What it does |
+[English version](README.en.md)
+
+| 插件 | 作用 |
 | --- | --- |
-| [`opencode-go-usage`](plugins/opencode-go-usage) | Reads the OpenCode Go subscription's 5-hour, weekly and monthly quota |
-| [`minimax-quota`](plugins/minimax-quota) | Reads the MiniMax M Plan's 5-hour and weekly allowance |
-| [`better-experience`](plugins/better-experience) | The Settings page holding this collection's global preferences |
+| [`opencode-go-usage`](plugins/opencode-go-usage) | 读取 OpenCode Go 订阅的 5 小时、周、月三个窗口的额度 |
+| [`minimax-quota`](plugins/minimax-quota) | 读取 MiniMax M Plan 的 5 小时、周两个窗口的额度 |
+| [`better-experience`](plugins/better-experience) | 设置（Settings）页：放这个 bundle 的全局偏好 |
 
-The two quota plugins no longer render widgets of their own. They are the two
-**Host halves and their copy**; the single control below the composer is drawn
-by this collection's shared browser half.
+两个额度插件不再各自渲染自己的组件。它们只是各自 **Host 半边**和**文案**；输入框下方那个唯一的控件是这套 bundle 共享的浏览器半边画的。
 
-Its ring **follows the session's model** — switch the session to MiniMax and the
-ring becomes the MiniMax allowance, with no reload — and its **popup lists both
-plans**, so when one is exhausted you can see at a glance whether the other still
-has room. The plan you are not spending is read only while that popup is open.
+它的**圆环**跟随会话当前用的模型 —— 把会话切到 MiniMax，圆环就显示 MiniMax 的额度，无需刷新 —— 它的**弹窗**把**两个套餐**都列出来，所以其中一个花完了，你一眼就能看到另一个还有没有余量。没在用的那个套餐**只在弹窗打开时**才被读。
 
-**Better experience → Display** turns the whole control off, which unmounts it
-so no requests are made at all.
+**Settings → 更好的体验 → 显示** 把整个控件关掉，关闭即卸载，**不发起任何**额度请求。
 
-Preferences are live: changing one takes effect at once, with no reload.
+偏好是实时的 —— 在设置页上改一下立刻生效，不用刷新。
 
-## Install
+## 安装
 
-Needs a DSH whose profile carries the Web carrier (`dsh-web-app`). Install the
-bundle from the sidebar's **Plugins** page, or with the `plugin_manager` tool:
+需要一个 profile 里带 Web carrier（`dsh-web-app`）的 DSH。在侧栏的 **Plugins** 页安装，或者用 `plugin_manager` 工具：
 
 ```jsonc
 { "action": "install_bundle", "target": "github:nullpoint333/dsh-plugins" }
 ```
 
-One install brings in every plugin in this repository, and each row can then be
-enabled or disabled on its own. The manager verifies a GitHub repository with
-`git ls-remote` before installing, using the profile directory's own Git and proxy
-configuration, so an SSH remote or an internally mirrored URL works the same way.
+装一次就把仓库里所有插件都装上，每一行可以单独启用 / 关闭。安装器在装之前用 `git ls-remote` 校验仓库存在，用的是 profile 目录里它自己的 Git 和代理配置，所以 SSH remote 和公司内网镜像走的是同一条路。
 
-There are no dependencies, no install scripts and no build step: the JavaScript
-files are the whole implementation.
+没有依赖、没有 install 脚本、没有 build 步骤 —— 那些 `client.js` 就是全部实现。
 
-### First-time install on a new machine
+### 在新机器上第一次装
 
-The install spec above gets the bundle on disk, but four rows are required to
-get the quota control actually showing. Enable each one in the Plugins page
-right after install (or by re-running `plugin_manager` with `set_bundle` /
-`set_plugin`):
+上面的 install 命令把 bundle 装到了硬盘上，但要让额度控件**真的**显示出来，还需要**四行都打开**。装完之后在 Plugins 页里把每一行启用（或者再用 `plugin_manager` 跑 `set_bundle` / `set_plugin`）：
 
-| Row | Why it has to be on |
+| 行 | 为什么必须打开 |
 | --- | --- |
-| `dsh-plugins-host` | The container row from the repo root; every other row runs inside it. Without it, nothing else mounts. |
-| `opencode-go-usage` | The Host half that reads the OpenCode Go subscription. With it off, the popup's OpenCode section reads nothing. |
-| `minimax-quota` | The Host half that reads the MiniMax M Plan. Same as above for the MiniMax section. |
-| `better-experience` | The Settings page that holds **Settings → Better experience → Display** — the only place the user can turn the whole control off. With it off, the control still works, but there is no way to toggle it. |
+| `dsh-plugins-host` | 仓库根的那一行，是其它所有行的容器。不开这个，其它任何东西都装不上。 |
+| `opencode-go-usage` | 读 OpenCode Go 订阅的 Host 半边。关掉它，弹窗里 OpenCode Go 的那一节就读不到东西。 |
+| `minimax-quota` | 读 MiniMax M Plan 的 Host 半边。同上，对应 MiniMax 那一节。 |
+| `better-experience` | 设置页所在那一行 —— **Settings → 更好的体验 → 显示** 是唯一能关掉整个控件的地方。关掉它，控件照样工作，但用户没办法关掉它。 |
 
-The control's visibility is a per-user `localStorage` value
-(`dsh-plugins.better-experience.show-quota`), default **on**, so a fresh browser
-shows the ring immediately. The ring is the default because turning it off
-must be an explicit choice; it would be wrong to ship a plugin that mutes
-itself on first install and asks the user to find a Settings page to enable it.
+控件的可见性是**每个浏览器**的 `localStorage` 值（`dsh-plugins.better-experience.show-quota`），默认 **on** —— 所以新开机的浏览器一进来就能看到圆环。这是**故意**的：关掉它必须是一个显式的选择。**不应该**出现"插件装好但第一次开着没用、得让用户先去设置页找开关"这种局面。
 
-Credentials are read from the Harness process's environment, not from this
-repository — the Host halves do not store them, and the bundle does not read
-`~/.bashrc` for you:
+凭据从 Harness 进程的**环境变量**读，不在仓库里写死 —— Host 半边不存凭据，bundle 也不会替你去读 `~/.bashrc`：
 
-| Plugin | Reads from |
+| 插件 | 读哪个 |
 | --- | --- |
 | `opencode-go-usage` | `OPENCODE_GO_API_KEY` |
-| `minimax-quota` | `MINIMAX_CN_API_KEY` (and its Chinese variant) |
+| `minimax-quota` | `MINIMAX_CN_API_KEY`（以及对应的中文变体） |
 
-If Harness runs as a service, put the variables in its unit's `Environment=`,
-not in your shell, so they survive a restart. A missing key shows up in the
-popup as a clear "is not configured" line; the ring stays rather than
-disappearing, so the user always has a way to see what is wrong.
+如果 Harness 是 service 跑的，把变量写到它 unit 的 `Environment=` 里，不要写在你的 shell 里 —— 这样重启后还在。缺哪个 key 的时候，弹窗里会直接显示一行"未配置 X"，**圆环不会消失**，这样你总能看见哪儿不对。
 
-If the company machine can only reach GitHub through an internal mirror, point
-`git`'s `insteadOf` at it; `plugin_manager` uses the profile directory's own
-git and proxy configuration, so the install path is the same as for any other
-repository your team clones.
+如果公司机器只能通过内网镜像访问 GitHub，给 git 设一条 `insteadOf` 规则即可；`plugin_manager` 用的是 profile 目录里它自己的 git 和代理配置，安装路径跟你们 team 平时 clone 仓库**完全一样**。
 
-### Offline install (no internet on the target machine)
+### 离线安装（目标机器完全没网）
 
-Two paths work without any outbound traffic at install time. Both rely on
-`plugin_manager` using the same git on the host machine that the rest of
-Harness already uses, so a working git on PATH is the only prerequisite.
+下面两条路在安装那一刻**完全不需要出网**。两条都靠同一个事实：`plugin_manager` 装包只跟 **git** 打交道（用 `git ls-remote` 校验仓库存在）。所以路径上唯一的前提是目标机器上有一个能用的 git。
 
-**Local bare mirror of the repo** (preferred for a team that maintains its own
-plugins):
+**本地 bare 镜像**（团队维护自己插件时的标准做法）：
 
 ```sh
-# On a machine that has internet, once:
+# 在一台能上网的机器上，跑一次：
 git clone --bare https://github.com/nullpoint333/dsh-plugins.git /srv/mirror/dsh-plugins.git
 git -C /srv/mirror/dsh-plugins.git update-server-info
-# Move /srv/mirror/dsh-plugins.git to a share the target can read.
+# 把 /srv/mirror/dsh-plugins.git 搬到目标机器能读到的共享盘上。
 ```
 
-On the target, point git at the local mirror and install by URL — the install
-flow is identical to the online path, and the git transport does not need
-network at install time because the remote resolves locally:
+在目标机器上，让 git 把那个镜像当成本地地址，安装命令**完全不变** —— git 一层就把 URL 改写掉了，**传输层根本没出网**：
 
 ```sh
 git config --global url."/srv/mirror/dsh-plugins.git".insteadOf https://github.com/nullpoint333/dsh-plugins
-# then in plugin_manager:
+# 然后 plugin_manager 里：
 { "action": "install_bundle", "target": "github:nullpoint333/dsh-plugins" }
 ```
 
-The `insteadOf` rule is the whole trick: the manager reads the URL and the
-host git rewrites it. The bundle's `git ls-remote` step — which the manager
-uses to verify the repository — runs against the mirror, not GitHub.
+`insteadOf` 这条规则是**全部窍门**：`plugin_manager` 看到的还是 GitHub URL，但 host 的 git 在 transport 层就把它改写成 `/srv/mirror/...`。`plugin_manager` 用来校验仓库的 `git ls-remote` 跑在镜像上，**不**跑在 GitHub 上。
 
-**Single-file `git bundle`** (good for a one-time transfer by USB stick or a
-slow VPN):
+**单文件 `git bundle`**（U 盘 / 慢 VPN 一次性拷贝）：
 
 ```sh
-# On the source machine, once, with all branches the target will need:
+# 在源机器上，跑一次，把所有目标可能用到的分支都打进去：
 git clone https://github.com/nullpoint333/dsh-plugins.git
 cd dsh-plugins
 git bundle create /tmp/dsh-plugins.bundle --all
 
-# Copy the file to the target.
+# 把这个文件拷到目标机器。
 ```
 
-On the target, clone from the bundle, then serve it as a bare repo for the
-manager:
+在目标机器上，从 bundle 还原，再导出一份 bare 仓库给 `plugin_manager` 用：
 
 ```sh
 git clone /path/to/dsh-plugins.bundle dsh-plugins
-git -C dsh-plugins bundle verify </path/to/dsh-plugins.bundle   # safety check
-# Make a bare mirror so the manager's `git ls-remote` works:
+git -C dsh-plugins bundle verify </path/to/dsh-plugins.bundle   # 安全校验
+# 导成 bare 仓库，让 manager 的 `git ls-remote` 能工作：
 git clone --bare dsh-plugins /srv/mirror/dsh-plugins.git
 git -C /srv/mirror/dsh-plugins.git update-server-info
-# then `git config --global url."file:///srv/mirror/...".insteadOf ...` and install.
+# 然后 `git config --global url."file:///srv/mirror/...".insteadOf ...`，再安装。
 ```
 
-The bundle is a single file the manager never sees directly — it only talks
-to git. So the **one** step that needs network is the `git clone` that
-produces the bare mirror; after that, every install runs offline.
+bundle 是**单文件**，`plugin_manager` 永远不会直接读它 —— 它只跟 git 说话。所以**唯一**需要网络的一步是导出 bare 镜像的那次 `git clone`；之后每一次安装都离线。
 
-If your install is one-off, you can also point the mirror at a USB stick by
-using a `file://` URL in the `insteadOf` rule:
+如果你的安装是一次性的，还可以在 `insteadOf` 规则里直接指向 U 盘（`file://` URL）：
 
 ```sh
 git config --global url."file:///mnt/usb/dsh-plugins.git".insteadOf https://github.com/nullpoint333/dsh-plugins
 ```
 
-The bundle's `cordis.patch.yml`, `client.js`, `host.js`, and per-plugin
-directories are plain files — `git clone --bare` plus `update-server-info`
-gives `plugin_manager` everything it needs to read them without re-running
-JavaScript from a network.
-
-## Plugins
+bundle 里的 `cordis.patch.yml`、`client.js`、`host.js`、各个 plugin 目录都是普通文件 —— `git clone --bare` 加 `update-server-info` 就给了 `plugin_manager` 需要读的一切，**不用从网络跑 JavaScript**。
 
 ### `opencode-go-usage`
 
-OpenCode Go defines every allowance as a monthly dollar amount per model, and
-derives the shorter windows from it:
+OpenCode Go 把每个模型的额度定义为月度美元金额，并从中推算出更短的窗口：
 
-| Window | Allowance | Upstream field |
+| 窗口 | 额度 | 上游字段 |
 | --- | --- | --- |
-| 5 hours (rolling) | 20% of the monthly limit | `rolling` |
-| Week | 50% of the monthly limit | `weekly` |
-| Month | 100% of the monthly limit | `monthly` |
+| 5 小时（rolling，5 小时滚动） | 月度限额的 20% | `rolling` |
+| 周（week） | 月度限额的 50% | `weekly` |
+| 月（month） | 月度限额的 100% | `monthly` |
 
-Under the composer it stays one compact control: the label `5h` (`小时` in the
-Chinese locale) next to a **single ring** filled to the rolling window's used
-share, with the percentage beside it. Opening that control shows the weekly and
-monthly windows as bars with their percentages and reset times, when the figures
-were last read, and a refresh action; the ring's tooltip carries the 5-hour
-window's reset time and countdown.
+输入框下方是一个紧凑的控件：标签 `5h`（中文 locale 显示 `小时`），旁边**一个圆环**（ring），按滚动窗口的已用份额填充，旁边带百分比。点开这个控件，弹窗里会显示周、月两个窗口的进度条、各自的百分比和重置时间、上次读取时间，以及一个"刷新"动作；圆环的 `title`（tooltip）里带 5 小时窗口的重置时间和倒计时。
 
-**Reading is paced, not polled.** The figures are held per plugin rather than per
-view, so switching conversations re-renders them from the cache instead of
-re-reading; they are re-read only once they are older than `uiRefreshMs` (5 minutes
-by default), which is also the interval of the single timer that runs while the
-control is on screen. Opening the popup does not re-read — **Refresh** is the only
-thing that forces one.
+**读取是"按节奏"，不是"轮询"。** 数据是按 plugin 持有的，不是按视图持有的 —— 切换会话时直接拿缓存渲染，不会重读；只在超过 `uiRefreshMs`（默认 5 分钟）后才重读，这也是挂在屏幕上的唯一一个 timer 的周期。**打开弹窗不会触发重读** —— **刷新（Refresh）**是唯一强制重读的动作。
 
-`GET https://opencode.ai/zen/go/v1/usage` returns:
+`GET https://opencode.ai/zen/go/v1/usage` 返回：
 
 ```json
 { "usage": {
@@ -185,17 +132,9 @@ thing that forces one.
   "monthly": { "status": "ok", "percent": 0, "resetsAt": "2026-11-18T06:01:17.000Z" } } }
 ```
 
-That call needs the bearer key, so it stays on the Host half. The browser half
-fetches only the projected percentages and reset instants from
-`/plugin/opencode-go-usage/quota`, a loopback route this plugin registers, and
-never receives the key. The key is resolved per request through
-`ctx.credentials` as `OPENCODE_GO_API_KEY` — so a rotated credential reaches the
-next call without a restart — falling back to the same-named environment
-variable. The allowance belongs to the account behind that key, so each machine
-shows its own quota.
+那个调用需要 bearer key，所以留在 Host 半边。浏览器半边只从本插件注册的 loopback 路由 `/plugin/opencode-go-usage/quota` 拉投影过的百分比和重置时间，**永远拿不到 key**。key 是按请求通过 `ctx.credentials` 解析成 `OPENCODE_GO_API_KEY` 的 —— 轮换过的凭据下一调用就生效，不用重启 —— 找不到 `ctx.credentials` 时回退到同名环境变量。额度属于那个 key 背后的账号，所以**每台机器**显示它自己的那个账号的额度。
 
-Configuration (optional; every field has a default) is overridden from the
-profile's own `cordis.patch.yml`:
+可选配置（每一项都有默认值），可以用 profile 自己的 `cordis.patch.yml` 覆盖：
 
 ```yaml
 - id: opencode-go-usage
@@ -209,20 +148,16 @@ profile's own `cordis.patch.yml`:
 
 ### `minimax-quota`
 
-MiniMax's M Plan is also a subscription with two independently refreshing
-windows, and the same allowance is shared by every tool that uses the key:
+MiniMax 的 M Plan 也是订阅，两个窗口独立刷新，**同一个** key 上的**所有**工具共享同一个额度：
 
-| Window | Covers | Length |
+| 窗口 | 覆盖 | 时长 |
 | --- | --- | --- |
-| 5 hours | non-video models (text, image, audio) | 5 hours from first use |
-| Week | every model, video included | 7 days from first use |
+| 5 小时 | 非视频模型（文本、图像、音频） | 从首次使用起 5 小时 |
+| 周 | 所有模型，包括视频 | 从首次使用起 7 天 |
 
-A non-video model needs **both** windows to have something left, so a spent
-5-hour window stops work even while the week is nearly untouched — which is
-exactly what makes a two-window display worth having.
+非视频模型需要**两个窗口**都还有余额，5 小时花完了就会停下来，即使周额度几乎没动 —— 这正是双窗口显示存在的理由。
 
-MiniMax documents the figures in its console and in its own CLI (`mmx quota`).
-This plugin reads the same route that CLI uses:
+MiniMax 在自己的控制台和官方 CLI（`mmx quota`）里展示数字。本插件读的是 CLI 用的同一条路由：
 
 ```
 GET https://api.minimax.cn/v1/token_plan/remains
@@ -236,36 +171,22 @@ Authorization: Bearer <M Plan subscription key>
   "base_resp": { "status_code": 0, "status_msg": "success" } }
 ```
 
-Two details of that payload are worth naming, because both are easy to get
-backwards:
+那个返回里有两点容易写反，**单独提一下**：
 
-- **The percentages are what is LEFT, not what is used.** The Host half
-  converts them, so every widget in this collection draws the same thing (the
-  share spent), and the MiniMax popup prints both readings rather than picking
-  one.
-- **The count field is named `*_usage_count` but is treated as REMAINING.**
-  MiniMax's own CLI reads it that way and flips to `total - count` only when
-  `*_remaining_percent` disproves that reading by the smaller margin. The Host
-  half mirrors that, and where the two readings disagree with the reported
-  percentage by more than one point the reported percentage wins rather than a
-  guess.
+- **百分比表示的是"剩余"，不是"已用"。** Host 半边做了一次转换，所以这个 bundle 里所有 widget 画的都是同一件事（已用份额），而 MiniMax 弹窗把"已用"和"剩余"两个读数都印出来，而不是只挑一个。
+- **名叫 `*_usage_count` 的字段其实是"剩余"**（用法名容易看反）。MiniMax 自己的 CLI 就是这么读的，只有在 `*_remaining_percent` 用"差值更小"的那种方式证伪它的时候才会回退到 `total - count`。Host 半边照搬这个逻辑，如果两个读数和上报的百分比差异超过 1 个点以上，**以上报的百分比为准**，不靠猜。
 
-The route needs the **subscription** key (`sk-…`). A pay-as-you-go key starts
-with `sk-api-`, belongs to a different endpoint, and is metered against the
-account balance instead; the plugin detects that and says so rather than
-reporting an empty allowance. The key never reaches the browser: the Host half
-owns the call and republishes only the projected shares and reset instants over
-`/plugin/minimax-quota/quota`.
+这条路由要的是**订阅** key（`sk-…`）。按量计费的 key 以 `sk-api-` 开头，属于另一条端点，是按账户余额计费的；本插件能识别出这种情况，并直接说"这不是订阅 key"，而不是报一个看起来空空的额度。**key 不会进到浏览器** —— Host 半边自己调，然后把投影后的份额和重置时间通过 `/plugin/minimax-quota/quota` 重新发布出来。
 
-Configuration (optional; every field has a default):
+可选配置（每一项都有默认值）：
 
 ```yaml
 - id: minimax-quota
   config:
-    # The international base is 'https://api.minimax.io'; both serve this route.
+    # 国际版 base 是 'https://api.minimax.io'；两个都服务这条路由。
     endpoint: 'https://api.minimax.cn'
     credentialRef: 'MINIMAX_CN_API_KEY'
-    # The plan entry carrying the text/image/audio allowance.
+    # 携带文本 / 图像 / 音频额度的 plan 条目。
     modelName: 'general'
     cacheMs: 5000
     requestTimeoutMs: 15000
@@ -274,254 +195,148 @@ Configuration (optional; every field has a default):
 
 ### `better-experience`
 
-This plugin owns the **Better experience** Settings page — a place for the
-collection's global preferences to live, so the next plugin that needs a
-preference does not have to invent its own page.
 
-The page renders one section per concern, and each row is: a label, a
-description, a status line that states the **consequence** of the current
-value rather than the bit itself, and one control — a switch or a `select`.
+这个插件拥有 **Settings → 更好的体验** 页 —— 给这个 bundle 的全局偏好一个家，下一个需要偏好的插件不用自己再造一个页面。
 
-| Preference | Key | Default | What it does |
+页面里一节一类问题，每一行的格式是：标签、说明、**当前取值会产生什么后果**而不是那个开关本身、以及一个控件（开关或者 `select`）。
+
+| 偏好 | 键 | 默认 | 作用 |
 | --- | --- | --- | --- |
-| Show the usage limits | `show-quota` | **on** | Shows the control below the composer: a ring that follows the session's model, and a popup listing both plans. Turning it off unmounts the control, so no requests are made. |
-| Notify when a task completes | `notify-on-completion` | off | Sends a desktop notification when the model finishes a turn. |
+| 显示额度 | `show-quota` | **on** | 在输入框下方显示控件：圆环跟随当前会话所用的模型，弹窗里同时列出两个套餐。关掉它控件就卸载，不发起任何请求。 |
+| 任务完成时发送通知 | `notify-on-completion` | off | 模型完成一轮时发桌面通知。 |
 
-Keys live under `localStorage['dsh-plugins.better-experience.<name>']`, so a
-future plugin in this collection cannot collide with them. A value equal to
-its default is stored by **removing** the key, which lets a later release
-change a default without a migration. A stored value the preference does not
-accept — a stale key, or a hand-edited one — falls back to the default rather
-than putting the UI into an unknown state.
+键都存在 `localStorage['dsh-plugins.better-experience.<name>']` 下，这样以后 bundle 里的其它插件**不会**撞名。等于默认值的就**删 key**来存 —— 这样以后发新版改默认值时不用做迁移。存进去的值如果这个偏好不接受（陈旧的 key、或者手改过），回退到默认值，而不是让 UI 落到一个未知状态。
 
-The live values are not read from `localStorage` on every render: `storage`
-events do not fire in the tab that wrote them, so that would not wake a
-mounted view anyway. Instead one in-memory store is created per activation
-and shared by every subscriber — the settings page writes it, and the
-composer control reads it. That is what makes a change take effect
-**immediately, with no reload**; `localStorage` is only the durable layer
-behind it. Both are exercised by the repository's offline checks (below).
+实时值不是每次 render 时去 `localStorage` 读 —— 同一 tab 里 `storage` 事件根本不触发，读了也唤醒不了已挂载的视图。改成**每个 activation 创建一个内存 store，所有订阅者共享**：设置页写它，输入框下的控件读它。**这就是**为什么"改一下立刻生效，不用刷新"；`localStorage` 只是它背后的持久化层。仓库的离线检查（下文）覆盖了这两条路径。
 
-### The popup, and what gets read when
+#### 弹窗，以及"什么时候会读什么"
 
-The popup exists to answer one question: *with this plan spent, does the other
-one still have room?* So it lists **every** plan this collection can read, each
-with all of its windows, and marks the one the session is currently spending.
+弹窗的存在是为了回答一个问题：**"这个套餐花完了，另一个还有没有余量？"** 所以它把**这个 bundle 能读到的所有套餐**都列出来，每个都带它所有的窗口，并且把会话当前正在花的那一个**标记出来**。
 
-That shapes the request pattern, which is otherwise easy to get wrong:
+这决定了请求模式（这一块很容易写错）：
 
-| State | What is read |
+| 状态 | 读什么 |
 | --- | --- |
-| Control mounted, popup closed | the plan the model is spending only — the ring's figure |
-| Popup open | the other plans too, once, as it opens |
-| Popup closed again | the other plans' subscriptions drop, so their timers stop |
-| Control unmounted (preference off) | nothing at all |
+| 控件挂着，弹窗关着 | 只读当前模型在花的那一个 —— 圆环上的数字 |
+| 弹窗打开 | 其它套餐也读一次，开的那一瞬间读 |
+| 弹窗再关掉 | 其它套餐的订阅撤销，它们的 timer 停止 |
+| 控件卸载（偏好关闭） | 什么都不读 |
 
-So a plan you are not using is never polled in the background, and a plan you
-are using is read on the same paced schedule as before. Each section prints its
-own read time rather than one shared line, because the two can legitimately
-differ — one is on a timer and the other was fetched on demand.
+**没在用的套餐永远不会在后台轮询。** 每个区块各印自己的"读取于"时间，而不是共用一行 —— 共用一行的话必然有一个是假的：一个挂在 timer 上、一个是按需读的，时间本来就该不一样。
 
-### How the ring follows the model
+#### 圆环怎么跟着模型走
 
-The dock entry reads the session's own `modelSelection` projection and matches
-its provider against the providers each Host half declares (`opencode-go`, and
-`minimax-cn`/`minimax`). A model switch re-renders the entry with a new
-provider, so the ring changes with it.
+dock 条目读会话自己的 `modelSelection` 投影，把它的 provider 跟每个 Host 半边声明的 provider 列表（`opencode-go`，以及 `minimax-cn` / `minimax`）匹配。模型一换，dock 条目会带着新的 provider 重新 render，圆环就跟着换。
 
-That projection is `{ lastUsed, next }`, each a `{ provider, model,
-reasoningEffort? }` or null: `next` is what the following request should use and
-`lastUsed` is what the last one did. The entry prefers `next` — the user's
-current choice — and falls back to `lastUsed` for a session whose next selection
-has not been written yet. (The composer's own model picker merges this
-projection with a catalog store of its own under a `current` key; that is its
-internal shape, not the projection's, and reading it here finds nothing.)
+那个投影的形状是 `{ lastUsed, next }`，每个值是 `{ provider, model, reasoningEffort? }` 或 null：`next` 是"下一请求该用的"，`lastUsed` 是"上一次实际用的"。dock 条目优先 `next` —— 也就是用户当前的选择 —— `lastUsed` 只是给那种"next 还没写"的会话做兜底。（composer 自己的模型选择器在内部用了一个 catalog store 来合并这个投影，合并后的键叫 `current`；那是它**内部**的形状，不是投影的形状 —— 在这里读 `current` 读不到东西。）
 
-When the model is on a provider this collection has no plan for — the official
-DeepSeek account, say — the trigger stays but shows no ring, and the popup still
-lists both plans. That is deliberate: the trigger disappearing would take away
-the only way to ask the question the popup answers.
+当模型在这个 bundle 没有对应套餐时（比如官方 DeepSeek 账号），触发器（trigger）**不消失**，只是不画圆环；弹窗照样能打开、照样列两个套餐。这是**故意**的：让触发器消失就拿走了"问这个问题"的唯一入口。
 
-Two properties make that safe rather than fragile:
+有两个性质让这个设计稳，而不是脆：
 
-- `modelSelection` is a **session-scoped** projection and the dock entry is
-  session-scoped, so the scope matches. (Calling a session-scoped standard
-  hook from a *root*-scoped page is the mistake that once blanked the settings
-  page; see the rule in *Adding a plugin* below.)
-- The projection store defines a face for **every** key: an unknown or
-  not-yet-populated key is an `undefined` snapshot, never a throw. So an
-  unexpected provider leaves the dock empty instead of breaking the composer,
-  and a profile without the model-selection plugin degrades the same way.
+- `modelSelection` 是**会话作用域**的投影，dock 条目本身也是会话作用域的，作用域匹配。（在 *root* 作用域的页面里调一个会话作用域的 standard hook，会触发 `SlotAssemblyError`，那正是曾经把设置页搞白板的 bug；规则在本文 *Adding a plugin* 一节。）
+- 投影 store **对每一个 key 都定义一个 face**（人脸 / 取值面）：未知的、还没写入的 key 是 `undefined` 快照，不是抛错。所以意外的服务商只是让 dock 空着，不会把 composer 搞挂；一个没装 model-selection 插件的 profile，行为也一样。
 
-A provider this collection has no widget for (the official DeepSeek account,
-say) shows nothing, which is the honest answer rather than a stale figure.
+一个这个 bundle 不读的 provider（比如官方 DeepSeek 账号）显示空 —— 这是诚实的答案，而不是留一个过期的数字。
 
-### The notification row today
+#### 通知这一行
 
-The row, its persistence, and its availability handling work, and a **Send a
-test notification** action verifies the OS-level permission and the API path
-without waiting for a real task to end. Firing automatically on task
-completion is **not implemented yet**: it needs session state, and the *page*
-is root-scoped so it cannot read a session-scoped hook. That runtime belongs
-in the session-scoped dock entry, which is where the quota widget lives and
-where the same preference store is already in reach.
+通知这一行的开关、持久化、可用性都通了，**"发送测试通知"**这个动作能验证 OS 的通知权限和 API 路径，不用真等任务结束。但**自动**在任务完成时发通知这件事**还没写**：它需要会话状态，而设置页本身是 root 作用域的，读不到会话作用域的 hook。运行时应该放在会话作用域的 dock 条目里 —— 也就是圆环旁边那个会话作用域位置，那一块已经能拿到同一个偏好 store 了。
 
-## Offline checks
+## 离线检查
 
-The browser half can be verified without a browser. Both scripts load
-`client.js` through the module-loader shim and inject React, so they catch
-render-time failures that a browser only reports as a blank slot:
+浏览器半边可以**不打开浏览器**就验证。两个脚本都通过 module-loader shim 加载 `client.js` 并注入 React，所以能抓到那种浏览器里只会显示一个"空白槽位"的 render 期错误：
 
 ```
-node render-test.cjs   <client.js>                    # both entries render
-node interact-test.cjs <client.js>                    # ring, popup, no Notifications API
-node interact-test.cjs <client.js> --notifications    # ring, popup, permission granted
+node render-test.cjs   <client.js>                    # 两个 entry 都能 render
+node interact-test.cjs <client.js>                    # 圆环、弹窗、无 Notifications API
+node interact-test.cjs <client.js> --notifications    # 圆环、弹窗、有权限
 ```
 
-`interact-test.cjs` mounts both entries in a jsdom DOM and drives the real
-controls, so it covers what static rendering cannot see:
+`interact-test.cjs` 在 jsdom DOM 里挂载两个 entry，**真的去点**，所以它覆盖了纯 render 看不出来的东西：
 
-- the ring follows the model selection, and a **pending** selection wins over the
-  last one actually used;
-- an absent projection does not throw;
-- opening the popup lists **both** plans in a stable order, marks the one in use,
-  and still does so when the current model has no plan here (that trigger stays
-  reachable and reports no ring);
-- turning the control off unmounts it, and the preference round-trips.
+- 圆环跟随模型选择，**未生效的**选择必须赢过**上一次实际用的**；
+- 投影缺失不抛错；
+- 打开弹窗后**两个**套餐都列出来、顺序稳定、当前那个被标记；当前模型在这个 bundle 没有对应套餐时也照样这样（触发器不消失、显示无环）；
+- 控件关掉即卸载，偏好 round-trip。
 
-It also supplies the root standard seat with hooks that throw, which is how a
-stray session-hook call in a root-scoped page is caught before it blanks the page.
+它还把 root standard seat 上的 hook 替换成会**抛错**的桩 —— 这就是发现"在 root 作用域的页面上意外调了会话 hook"那一类问题的方法，能在它把页面搞白板之前就抓住。
 
-## Repository layout
+## 仓库布局
 
-The repository root **is** the package root, which is what makes
-`github:nullpoint333/dsh-plugins` a valid install target: an install spec names a
-repository, and the manager imports the package it finds there.
+仓库根**就是**包根，这也是 `github:nullpoint333/dsh-plugins` 能直接当 install 目标的原因：install spec 写的是一个仓库，manager 装的就是它在里面找到的那个包。
 
 ```
-package.json                      the one package: bundle + client declaration
-cordis.patch.yml                  one Loader row per plugin, plus the root row
-host.js                           package-root row (see below)
-client.js                         the package's single browser half — all UI
-locale/{en,zh}.json               the bundle's card in the Plugins page
+package.json                      唯一的包：bundle + client 声明
+cordis.patch.yml                  一个 Loader 行一个 plugin，加根那一行
+host.js                           包根行（见下文）
+client.js                         这个包唯一的浏览器半边 —— 所有 UI
+locale/{en,zh}.json               bundle 在 Plugins 页面里的卡片
 icon.svg
 plugins/
   opencode-go-usage/
-    index.js                      Host half: upstream call + loopback route
-    locale/{en,zh}.json           this plugin's own row in the Plugins page
+    index.js                      Host 半边：上游调用 + loopback 路由
+    locale/{en,zh}.json           这个 plugin 在 Plugins 页面里自己的行
     icon.svg
   minimax-quota/
-    index.js                      Host half: plan call + loopback route
-    locale/{en,zh}.json           this plugin's own row in the Plugins page
+    index.js                      Host 半边：plan 调用 + loopback 路由
+    locale/{en,zh}.json
     icon.svg
   better-experience/
-    index.js                      Host half: empty (the page is browser-only)
-    locale/{en,zh}.json           this plugin's own row in the Plugins page
+    index.js                      Host 半边：空（页面是纯浏览器的）
+    locale/{en,zh}.json
     icon.svg
 ```
 
-A subpath plugin exports its own `locale/*.json` and `icon` for display and is
-never read as a package of its own.
+子路径 plugin 各自 export 自己的 `locale/*.json` 和 `icon`，**从来**不会作为一个独立的包被读。
 
-Both quota plans share one browser implementation: each Host half normalizes its
-provider's envelope into the same window shape (`percent` = the share USED, plus
-`resetsAt`), and a `QUOTA_WIDGETS` entry in `client.js` names the route, the
-providers it answers for, and its window labels. Shared chrome copy lives once in
-the `better-experience` dictionary; a Host half's own dictionary carries only
-what is genuinely specific to it.
+两个额度套餐共用一个浏览器实现：每个 Host 半边都把自己的 provider 返回包装成同一种窗口形状（`percent` = 已用份额，加 `resetsAt`），`client.js` 里一个 `QUOTA_WIDGETS` 条目写明路由、它支持哪些 provider、和它的窗口标签。共用的界面文案（chrome）只放在 `better-experience` 字典里写一次；每个 Host 半边自己的字典只放**真的属于它**的那些文案。
 
-A third plan is therefore a Host half, a `QUOTA_WIDGETS` entry and two
-dictionaries — no new view code, and it appears in the popup beside the others
-automatically.
+所以加第三个套餐就是 —— 一个 Host 半边、一个 `QUOTA_WIDGETS` 条目、两份字典 —— **不用**写新的视图代码，它会自动出现在弹窗里，跟其他两个并排。
 
-### Why there is a separate root row
+### 为什么有一个独立的"根行"
 
-A browser half belongs to a **package**, not to a Loader row: the module id is the
-package name, and the Host composes the bundle from the package's
-`exports["./client"]`. The Host scans a row for that declaration only when the row
-names the **package root** — verified here by inserting one probe package twice,
-first as `pkg/probe` and then as `pkg`, where only the second form produced a live
-slot registration.
+浏览器半边属于**包**而不属于 Loader 行：模块 id 是包名，Host 是从包的 `exports["./client"]` 组装 bundle 的。Host 只在**行指向包根**的时候才会扫那一行做这个声明 —— 这一点通过把同一个探针包插两次验证过：先以 `pkg/probe`、再以 `pkg`，**只有**后一种形式才让 slot 注册跑起来。
 
-So `host.js` is the anchor and registers nothing itself. Keeping the anchor
-separate from the feature plugins is deliberate: if a feature plugin were the
-root, disabling it would take every other plugin's UI down with it.
+所以 `host.js` 是个锚点，**它自己不注册任何东西**。把锚点和功能 plugin 分开是故意的：如果以某个功能 plugin 为根，禁用它会把所有其他 plugin 的 UI 一并拖下来。
 
-### Adding a plugin
+### 添加一个 plugin
 
-1. `plugins/<name>/index.js` — the Host half. Export `apply(ctx, config)` and
-   declare `inject` for the services it needs.
-2. Add `"./<name>": "./plugins/<name>/index.js"` to `exports`, plus its
-   `./<name>/locale/*.json` and `./<name>/icon` when it has display metadata.
-3. Add a row to `cordis.patch.yml`:
-
+1. `plugins/<name>/index.js` —— Host 半边。export `apply(ctx, config)`，声明它需要的 `inject` 服务。
+2. 在 `exports` 里加 `"./<name>": "./plugins/<name>/index.js"`，有显示元数据的话再加 `./<name>/locale/*.json` 和 `./<name>/icon`。
+3. 在 `cordis.patch.yml` 里加一行：
    ```yaml
    - id: <name>
      name: 'dsh-plugins/<name>'
    ```
-4. For UI, register from `client.js` — the one bundle every plugin shares; there
-   is no per-plugin browser bundle.
-5. `plugins/<name>/locale/{en,zh}.json` gives the plugin its own title and
-   description in the Plugins page.
-6. **After editing a plugin file, republish before it can show.** The Host
-   snapshots a package's client entry when the bundle activates, so a lone edit to
-   `client.js` — or to a plugin's Host half — does not reach the running
-   composition on its own; the previous module keeps answering until the bundle is
-   composed again. Toggle the bundle off and on (the Plugins page, or
-   `plugin_manager` `set_bundle`), then reload the page so the browser takes the
-   new bundle.
-7. **Global preferences go on the `better-experience` page, not on a new
-   page of their own.** Future plugins in this collection should add their
-   preference to that section and store it under
-   `localStorage['dsh-plugins.better-experience.<key>']` so the page stays
-   the one place to manage collection-wide options.
-8. **Never call a standard `use*` hook whose scope does not match the slot.**
-   The renderer builds a root entry's props from the root standard binding
-   (`standardKit` in `dsh-client-ui-renderer`), so names such as
-   `useSessions` and `useSessionStatus` really are present as props. But a
-   *session*-scoped hook has no source for a *root*-scoped entry, and the
-   loader signals that with a `SlotAssemblyError` — which the entry error
-   boundary deliberately **rethrows** rather than containing. The result is
-   not a crashed row but a **blank page with no visible error**. A
-   `settings.section` page is root-scoped: use React's own hooks and the
-   entry's own inject face, and read session state from a session-scoped
-   slot instead.
+4. UI 在 `client.js` 里注册 —— **这个 bundle 共享这一个**浏览器半边，没有"每个 plugin 一个浏览器 bundle"这种东西。
+5. `plugins/<name>/locale/{en,zh}.json` 给这个 plugin 在 Plugins 页面自己的行提供标题和说明。
+6. **编辑完 plugin 文件后，要重新发布才会生效。** Host 在 bundle 激活的那一刻 snapshot 包的 client 入口，所以单改 `client.js` —— 或者改某个 plugin 的 Host 半边 —— 不会自己跑到正在跑的 composition 里去；老的模块会一直回答，直到你把 bundle 重新组装一次。把 bundle 关掉再打开（Plugins 页面，或者 `plugin_manager` `set_bundle`），然后刷新页面让浏览器拿到新的 bundle。
+7. **全局偏好挂在 `better-experience` 页上，不要新开一个自己的页面。** 这个 bundle 里的后续 plugin 应该把它的偏好加进那一节，存在 `localStorage['dsh-plugins.better-experience.<key>']` 下，这样页面仍然是管理 bundle 全局选项的**唯一**地方。
+8. **永远不要调用一个作用域和当前 slot 不匹配的 standard `use*` hook。** Renderer 用 root standard binding（`dsh-client-ui-renderer` 里的 `standardKit`）来组装 root entry 的 props，所以像 `useSessions` 和 `useSessionStatus` 这种名字**确实**作为 props 存在。但一个 *session* 作用域的 hook 在 *root* 作用域的 entry 上是**没有源**的，loader 会用 `SlotAssemblyError` 来表示这件事 —— 而 entry 的错误边界**故意**把它重新抛出**而不是**捕获。表现不是那一行崩了，是**整页空白且没有任何可见错误**。`settings.section` 页面是 root 作用域的：只用 React 自己的 hook 和 entry 自己的 inject face，会话状态从会话作用域的 slot 读。
 
-Two consequences to know before choosing this layout:
+选这种布局之前两条心里有数：
 
-- All UI shares one bundle, so a plugin with a UI cannot be published from this
-  repository on its own — it is always part of the collection.
-- A single git spec cannot address a subdirectory, so splitting this into several
-  packages under one repository would move distribution from `github:` installs
-  to a registry.
+- 所有 UI 共享一个 bundle，所以**带 UI 的 plugin 不能从本仓库单独发布** —— 它永远是整个 bundle 的一部分。
+- 单个 git spec 没法指向子目录，所以把这份代码拆成"一个仓库里几个包"会把发布路径从 `github:` 安装搬到一个 registry。
 
-## Requirements and limits
+## 限制
 
-- `opencode-go-usage` needs the Web carrier (`ctx.webServer`). An Electron-only
-  profile loads the page over `file://` and that plugin stays inactive.
-- Its route is registered as an `exact` route, so it is matched before the Web
-  shell's fallback handler and is **not** behind the connection's own
-  authorization. It exposes quota percentages only — never the API key — and the
-  listener is loopback-bound by the `webserver` row's `host` config.
-- `status` values other than `ok` and a used share of 100% render as an error, a
-  share of 80% or more as a warning.
+- `opencode-go-usage` 需要 Web carrier（`ctx.webServer`）。一个只有 Electron 的 profile 通过 `file://` 加载页面，这个 plugin 保持未激活。
+- 它的路由是用 `exact` 注册的，所以它**先于** Web shell 的 fallback handler 被匹配，**不**走连接自己的授权。它只暴露百分比，**绝不**包含 API key，listener 由 `webserver` 行的 `host` 配置绑在 loopback 上。
+- `status` 不是 `ok` 或者 `percent >= 100` 的窗口按"错误"渲染；`percent >= 80` 按"警告"渲染。
 
-### Switching between a working copy and the published package
+### 在"工作副本"和"已发布包"之间切换
 
-A local-path install (`link:`) runs this directory, so edits take effect at once;
-a `github:` install runs a downloaded copy. On Windows the switch back is not
-symmetric — `remove_bundle` reports `applied` but pnpm leaves the
-`node_modules/<name>` symlink behind, and the next install then fails with:
+本地路径安装（`link:`）跑的是这个目录，所以编辑立刻生效；`github:` 安装跑的是一个下载下来的副本。在 Windows 上反过来切是不对称的 —— `remove_bundle` 会报 `applied`，但 pnpm 把 `node_modules/<name>` 那个 symlink 留下来，下次再装会报错：
 
 ```
 [ERR_PNPM_EPERM] [importPackage ...\node_modules\dsh-plugins]
 EPERM: operation not permitted, rename '..._tmp_<pid>_<n>' -> '...\dsh-plugins'
 ```
 
-Delete that leftover symlink before installing the published package, and let the
-manager recreate the link when you switch back. A machine that never had a local
-install is unaffected: there is no entry for the rename to collide with.
+切回已发布包之前先手动把那个 symlink 删掉，等 manager 切回 `link:` 时再让它重新建。从来没装过本地链接的机器不受影响 —— 没有那个 symlink 让 rename 撞上。
 
-## License
+## 协议
 
-MIT — see [LICENSE](LICENSE).
+MIT —— 见 [LICENSE](LICENSE)。
