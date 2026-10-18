@@ -38,22 +38,22 @@ window.__ModuleLoader__.load({
     const VIEWPORT_MARGIN = 8
 
     /**
-     * One quota widget's identity. Both Host halves answer with the same
-     * normalized shape — `usage[windowKey] = { status, percent, resetsAt }`,
-     * where `percent` is the share USED — so the Client half needs no
-     * per-provider branch. `windows[0]` drives the ring; the rest fill the popup.
+     * One quota source the widget knows how to display. Both Host halves answer
+     * with the same normalized shape — `usage[windowKey] = { status, percent,
+     * resetsAt }`, where `percent` is the share USED — so the Client half needs
+     * no per-provider branch in its rendering.
      *
-     * `share` is optional and only meaningful where the plan itself defines the
-     * shorter window as a share of a longer one, as OpenCode Go does.
-     * `preference` names the Better experience toggle that governs this widget.
+     * `providers` are the ids the session's model selection reports for this
+     * source (`llm-pi-ai` provider keys). `name` is this source's own label in
+     * the popup, read from its dictionary. `share` is optional and only
+     * meaningful where the plan defines the shorter window as a share of a
+     * longer one, as OpenCode Go does.
      */
     const QUOTA_WIDGETS = [
       {
         id: 'opencode-go-usage',
         ns: 'opencode-go-usage',
         endpoint: '/plugin/opencode-go-usage/quota',
-        /* The provider ids this widget answers for, as the session's model
-           selection reports them (`llm-pi-ai` provider keys). */
         providers: ['opencode-go'],
         windows: [
           { key: 'rolling', share: '20%' },
@@ -66,6 +66,8 @@ window.__ModuleLoader__.load({
         ns: 'minimax-quota',
         endpoint: '/plugin/minimax-quota/quota',
         providers: ['minimax-cn', 'minimax'],
+        /* This plan can grant a boosted weekly allowance, which the popup says. */
+        boost: true,
         windows: [
           { key: 'interval' },
           { key: 'weekly' },
@@ -73,86 +75,52 @@ window.__ModuleLoader__.load({
       },
     ]
 
-    /** The preference value that means "follow the session's model". */
-    const QUOTA_SOURCE_AUTO = 'auto'
-    const QUOTA_SOURCE_BOTH = 'both'
-    const QUOTA_SOURCE_OFF = 'off'
-
-    /** Per-widget copy. A window's label is read from its own key. */
+    /**
+     * Per-source copy: only what is genuinely specific to one plan — its name,
+     * its window labels, its ring tooltip, and the messages about its own
+     * credential. Every piece of shared chrome (loading, refresh, close, read
+     * time, the reset line, the "not metered" state) lives in the collection's
+     * `better-experience` dictionary instead, so it is written once and reads
+     * the same in both sections of the popup.
+     */
     const DICTS = {
       'opencode-go-usage': {
         en: {
-          label: 'OpenCode Go limits',
+          label: 'OpenCode Go',
           rolling: '5h',
           weekly: 'Week',
           monthly: 'Month',
-          loading: 'reading…',
-          refresh: 'Refresh',
-          refreshing: 'Refreshing…',
-          close: 'Close',
-          updatedAt: 'read {time}',
-          never: 'no reset time reported',
-          unlimited: 'not metered',
           ringTitle: '5-hour window · {share} of the monthly allowance · resets {reset} ({in} left)',
-          resetsAt: 'resets {time} · {in} left',
           missingCredential: 'OPENCODE_GO_API_KEY is not configured',
-          unreachable: 'The Harness quota route did not answer',
         },
         zh: {
-          label: 'OpenCode Go 限额',
+          label: 'OpenCode Go',
           rolling: '小时',
           weekly: '周',
           monthly: '月',
-          loading: '读取中…',
-          refresh: '刷新',
-          refreshing: '刷新中…',
-          close: '关闭',
-          updatedAt: '读取于 {time}',
-          never: '未报告重置时间',
-          unlimited: '不计量',
           ringTitle: '5 小时窗口 · 占月度额度 {share} · {reset} 重置（还有 {in}）',
-          resetsAt: '{time} 重置 · 还有 {in}',
           missingCredential: '未配置 OPENCODE_GO_API_KEY',
-          unreachable: 'Harness 限额路由无响应',
         },
       },
       'minimax-quota': {
         en: {
-          label: 'MiniMax plan usage',
+          label: 'MiniMax M Plan',
           interval: '5h',
           weekly: 'Week',
-          loading: 'reading…',
-          refresh: 'Refresh',
-          refreshing: 'Refreshing…',
-          close: 'Close',
-          updatedAt: 'read {time}',
-          never: 'no reset time reported',
-          unlimited: 'not metered',
-          /* MiniMax meters what is LEFT, so the popup states both readings. */
+          /* MiniMax meters what is LEFT, so its ring tooltip says both. */
           ringTitle: '5-hour window · {used} used · {remaining} left · resets {reset} ({in} left)',
-          resetsAt: 'resets {time} · {in} left · {remaining} left',
           boost: 'weekly allowance boosted {factor}×',
           missingCredential: 'MINIMAX_CN_API_KEY is not configured',
           notSubscriptionKey: 'MINIMAX_CN_API_KEY is a pay-as-you-go key; the M Plan quota needs the subscription key',
-          unreachable: 'The Harness quota route did not answer',
         },
         zh: {
-          label: 'MiniMax 套餐额度',
+          label: 'MiniMax 套餐',
           interval: '5 小时',
           weekly: '周',
-          loading: '读取中…',
-          refresh: '刷新',
-          refreshing: '刷新中…',
-          close: '关闭',
-          updatedAt: '读取于 {time}',
-          never: '未报告重置时间',
-          unlimited: '不计量',
           ringTitle: '5 小时窗口 · 已用 {used} · 剩余 {remaining} · {reset} 重置（还有 {in}）',
-          resetsAt: '{time} 重置 · 还有 {in} · 剩余 {remaining}',
           boost: '周额度提升 {factor}×',
           missingCredential: '未配置 MINIMAX_CN_API_KEY',
           notSubscriptionKey: 'MINIMAX_CN_API_KEY 是按量计费密钥；M Plan 额度需要订阅密钥',
-          unreachable: 'Harness 限额路由无响应',
         },
       },
     }
@@ -169,23 +137,16 @@ window.__ModuleLoader__.load({
      */
     const PREFERENCES = [
       {
-        id: 'quotaSource',
-        storageKey: 'dsh-plugins.better-experience.quota-source',
-        kind: 'choice',
-        /* Following the model is the point of the unified widget, so it is the
-           default; every other value is an explicit override. */
-        default: QUOTA_SOURCE_AUTO,
-        options: [
-          { value: QUOTA_SOURCE_AUTO, labelKey: 'quotaSourceAuto' },
-          { value: 'opencode-go-usage', labelKey: 'quotaSourceOpencode' },
-          { value: 'minimax-quota', labelKey: 'quotaSourceMinimax' },
-          { value: QUOTA_SOURCE_BOTH, labelKey: 'quotaSourceBoth' },
-          { value: QUOTA_SOURCE_OFF, labelKey: 'quotaSourceOff' },
-        ],
+        id: 'showQuota',
+        storageKey: 'dsh-plugins.better-experience.show-quota',
+        kind: 'boolean',
+        /** Showing the quota is the plugin's whole point, so it defaults on. */
+        default: true,
         heading: 'displayHeading',
-        label: 'quotaSourceLabel',
-        description: 'quotaSourceDescription',
-        status: 'quotaSourceStatus',
+        label: 'showQuotaLabel',
+        description: 'showQuotaDescription',
+        statusOn: 'showQuotaStatusOn',
+        statusOff: 'showQuotaStatusOff',
       },
       {
         id: 'notifyOnCompletion',
@@ -207,15 +168,22 @@ window.__ModuleLoader__.load({
         sectionDescription: 'Global preferences shared by every plugin in this collection.',
         dockLabel: 'Usage limits',
         displayHeading: 'Display',
-        quotaSourceLabel: 'Quota shown below the composer',
-        quotaSourceDescription: 'One ring, following whichever provider the session\u2019s model uses: OpenCode Go or the MiniMax M Plan. Pin it to one provider, show both rings, or turn it off. A hidden widget is not mounted, so its requests stop too.',
-        quotaSourceAuto: 'Follow the current model',
-        quotaSourceOpencode: 'Always OpenCode Go',
-        quotaSourceMinimax: 'Always MiniMax',
-        quotaSourceBoth: 'Show both',
-        quotaSourceOff: 'Do not show',
-        quotaSourceStatus: 'Now: {value}.',
-        quotaSourceStatusAuto: 'Now: following the current model.',
+        showQuotaLabel: 'Show the usage limits',
+        showQuotaDescription: 'A ring below the composer follows whichever plan the session\u2019s model is spending — OpenCode Go or the MiniMax M Plan — and its popup lists both plans, so you can see at a glance whether the other one has room left. The plan you are not using is only read while that popup is open. Turning this off unmounts the widget, so no requests are made at all.',
+        showQuotaStatusOn: 'On — the ring follows the current model.',
+        showQuotaStatusOff: 'Off — the widget is hidden and no quota requests are made.',
+        /* Shared chrome for the quota popup: written once, used by both plans. */
+        loading: 'reading…',
+        refresh: 'Refresh',
+        refreshing: 'Refreshing…',
+        close: 'Close',
+        updatedAt: 'read {time}',
+        never: 'no reset time reported',
+        unlimited: 'not metered',
+        resetsAt: 'resets {time} · {in} left · {remaining} left',
+        currentPlan: 'in use',
+        noPlanForModel: 'No plan quota for this model',
+        notCoveredHint: 'This model is not on a plan this widget can read; open for details.',
         notifyHeading: 'Notifications',
         notifyLabel: 'Notify when a task completes',
         notifyDescription: 'Send a desktop notification when the model finishes a turn. The browser must grant the notification permission; once granted, the runtime is active while this settings page is open.',
@@ -235,15 +203,22 @@ window.__ModuleLoader__.load({
         sectionDescription: '本插件集合中所有插件共享的全局偏好。',
         dockLabel: '额度',
         displayHeading: '显示',
-        quotaSourceLabel: '输入框下方显示的额度',
-        quotaSourceDescription: '只保留一个圆环，自动跟随当前会话所用模型的服务商：OpenCode Go 或 MiniMax M Plan。也可以固定到其中一个、两个都显示，或直接关闭。隐藏的组件不会被挂载，因此它的额度请求也会停止。',
-        quotaSourceAuto: '跟随当前模型',
-        quotaSourceOpencode: '固定 OpenCode Go',
-        quotaSourceMinimax: '固定 MiniMax',
-        quotaSourceBoth: '两个都显示',
-        quotaSourceOff: '不显示',
-        quotaSourceStatus: '当前：{value}。',
-        quotaSourceStatusAuto: '当前：跟随当前模型。',
+        showQuotaLabel: '显示额度',
+        showQuotaDescription: '输入框下方的圆环跟随当前会话所用套餐（OpenCode Go 或 MiniMax M Plan）；弹出窗口里会同时列出两个套餐，方便一眼看出另一个是否还有余量。没在用的那个套餐只在你打开弹窗时才读取。关闭后组件会被卸载，不会发起任何请求。',
+        showQuotaStatusOn: '已开启 — 圆环跟随当前模型。',
+        showQuotaStatusOff: '已关闭 — 不显示组件，也不会请求额度数据。',
+        /* 额度弹窗共用的文案：写一次，两个套餐共用。 */
+        loading: '读取中…',
+        refresh: '刷新',
+        refreshing: '刷新中…',
+        close: '关闭',
+        updatedAt: '读取于 {time}',
+        never: '未报告重置时间',
+        unlimited: '不计量',
+        resetsAt: '{time} 重置 · 还有 {in} · 剩余 {remaining}',
+        currentPlan: '使用中',
+        noPlanForModel: '当前模型没有可读的套餐额度',
+        notCoveredHint: '当前模型不在本组件可读的套餐中；打开可查看两个套餐。',
         notifyHeading: '通知',
         notifyLabel: '任务完成时发送通知',
         notifyDescription: '在模型完成一轮时发送桌面通知。浏览器需要授予通知权限；授予后，只要设置页保持打开，运行时就会持续生效。',
@@ -319,19 +294,22 @@ window.__ModuleLoader__.load({
       return Math.min(100, Math.max(0, 100 - percent))
     }
 
-    function resetLine(window, now, t) {
+    /**
+     * The reset line for one window, in the collection's shared wording: when it
+     * resets, how long is left, and how much of it remains. Both readings travel
+     * together because plans differ on which one they meter, and the number a
+     * given provider reports is always the surprising one.
+     */
+    function resetLine(window, now, chrome) {
       const at = localTime(window?.resetsAt)
       if (at === null) return null
       const left = countdown(window?.resetsAt, now)
       if (left === null) return at
       const remaining = remainingOf(window)
-      return fill(t('resetsAt'), {
+      return fill(chrome('resetsAt'), {
         time: at,
         in: left,
-        /* Both readings travel together: providers differ on which one they
-           meter, and one of them is always the surprising number. */
         remaining: remaining === null ? '—' : formatPercent(remaining),
-        used: formatPercent(typeof window?.percent === 'number' ? window.percent : null),
       })
     }
 
@@ -459,16 +437,19 @@ window.__ModuleLoader__.load({
       ])
     }
 
-    function WindowRow({ label, window, now, t }) {
+    function WindowRow({ label, window, now, chrome, t }) {
       const unlimited = isUnlimited(window)
       const percent = typeof window?.percent === 'number' ? window.percent : null
-      const reset = resetLine(window, now, t)
+      const reset = resetLine(window, now, chrome)
       return h('div', { style: { display: 'grid', gap: 3 } }, [
         h('div', {
           key: 'head',
           style: { display: 'flex', alignItems: 'center', gap: 8 },
         }, [
-          h('span', { key: 'label', style: { color: 'var(--dsw-alias-label-secondary)' } }, label),
+          h('span', {
+            key: 'label',
+            style: { color: 'var(--dsw-alias-label-secondary)', minWidth: 34 },
+          }, label),
           h('span', {
             key: 'track',
             'aria-hidden': true,
@@ -486,39 +467,131 @@ window.__ModuleLoader__.load({
             key: 'value',
             style: {
               color: 'var(--dsw-alias-label-primary)', fontVariantNumeric: 'tabular-nums',
-              minWidth: 34, textAlign: 'right',
+              minWidth: 40, textAlign: 'right',
             },
-          }, unlimited ? t('unlimited') : formatPercent(percent)),
+          }, unlimited ? chrome('unlimited') : formatPercent(percent)),
         ]),
         h('div', {
           key: 'reset',
           style: { fontSize: 10, color: 'var(--dsw-alias-label-secondary)' },
-        }, unlimited ? t('never') : (reset ?? t('never'))),
+        }, unlimited ? chrome('never') : (reset ?? chrome('never'))),
       ])
     }
 
     /**
-     * One plugin's compact quota control.
-     * @param widgets - `windows[0]` drives the ring; the rest fill the popup.
-     *   The list is identical in shape for every provider, so adding one is a
-     *   Host half plus a QUOTA_WIDGETS entry.
+     * One entry's share of the popup: its name (marked when it is the plan the
+     * session is spending), its windows, and its own read state.
+     *
+     * Each source reports its own freshness, because the section the user is not
+     * using is read on demand rather than on a timer — so the two timestamps can
+     * legitimately differ, and one shared "read at" line would have to lie about
+     * one of them.
      */
-    function QuotaControl({ t, store, windows, widgetId, boostLabel }) {
+    function QuotaSection({ entry, now, chrome }) {
+      const { widget, t, store, boostLabel } = entry
+      const state = store.snapshot()
+      const [primary, ...rest] = widget.windows
+      const primaryWindow = state.usage?.[primary.key]
+
+      const status = (() => {
+        if (state.phase === 'loading' || state.phase === 'idle') return chrome('loading')
+        if (state.phase === 'error') return state.message
+        return fill(chrome('updatedAt'), { time: localTime(state.fetchedAt) ?? '—' })
+      })()
+
+      return h('section', { className: 'ocg-section', 'data-quota-section': widget.id }, [
+        h('div', { key: 'head', className: 'ocg-section__head' }, [
+          h('span', { key: 'name', className: 'ocg-section__name' }, t('label')),
+          entry.active
+            ? h('span', { key: 'chip', className: 'ocg-chip' }, chrome('currentPlan'))
+            : null,
+        ]),
+
+        state.phase === 'error'
+          ? h('div', {
+            key: 'body',
+            className: 'ocg-section__error',
+          }, state.message)
+          : h('div', { key: 'body', className: 'ocg-section__body' }, [
+            /* The popup's job is comparing plans, so every window is listed —
+               including the one the ring already shows, which is what makes
+               the two sections readable side by side. */
+            h(WindowRow, {
+              key: primary.key,
+              label: t(primary.key),
+              window: primaryWindow,
+              now,
+              chrome,
+              t,
+            }),
+            ...rest.map((window) => h(WindowRow, {
+              key: window.key,
+              label: t(window.key),
+              window: state.usage?.[window.key],
+              now,
+              chrome,
+              t,
+            })),
+            /* A plan that grants a boosted allowance says so, because it
+               otherwise reads as a quota that failed to shrink. */
+            boostLabel === undefined || state.boostPermille === null || state.boostPermille === 1000
+              ? null
+              : h('div', { key: 'boost', className: 'ocg-section__note' },
+                boostLabel((state.boostPermille / 1000).toFixed(2).replace(/\.?0+$/, ''))),
+          ]),
+
+        state.phase === 'error'
+          ? null
+          : h('div', { key: 'status', className: 'ocg-section__status' }, status),
+      ])
+    }
+
+    /**
+     * The collection's one quota control.
+     *
+     * The trigger shows the plan the session is currently spending, so the
+     * figure in the dock is always the one being consumed. The popup shows
+     * **every** plan this collection knows how to read, which is the point: with
+     * one plan exhausted, the question is whether the other still has room.
+     *
+     * @param entries - one bound source per plan, in display order.
+     * @param activeId - the entry the session's model points at, if any.
+     * @param chrome - the collection's shared chrome translator.
+     */
+    function QuotaControl({ entries, activeId, chrome }) {
       const [open, setOpen] = useState(false)
       const [position, setPosition] = useState(null)
       const [, setRevision] = useState(0)
       const anchor = useRef(null)
       const popup = useRef(null)
-      const primary = windows[0]
-      const rest = windows.slice(1)
 
-      /* The store outlives this mount, so a conversation switch re-renders from
-         the cached figures and re-reads them only once they have aged out. */
+      const active = entries.find((entry) => entry.widget.id === activeId)
+      const primary = active?.widget.windows[0]
+      const activeState = active?.store.snapshot()
+      const primaryWindow = activeState?.usage?.[primary?.key]
+      const now = Date.now()
+
+      const bump = useCallback(() => setRevision((value) => value + 1), [])
+
+      /* The active store is subscribed for as long as the widget is mounted, so
+         its timer runs and the ring stays current. */
       useEffect(() => {
-        const unsubscribe = store.subscribe(() => setRevision((value) => value + 1))
-        void store.read()
+        if (active === undefined) return undefined
+        const unsubscribe = active.store.subscribe(bump)
+        void active.store.read()
         return unsubscribe
-      }, [store])
+      }, [active, bump])
+
+      /* The other plans are subscribed — and read — only while the popup is
+         open. Closing it drops their subscriptions, which stops their timers, so
+         a plan the user is not spending is never polled in the background. */
+      useEffect(() => {
+        if (!open) return undefined
+        const others = entries.filter((entry) => entry.widget.id !== activeId)
+        const unsubscribes = others.map((entry) => entry.store.subscribe(bump))
+        for (const entry of others) void entry.store.read()
+        return () => { for (const unsubscribe of unsubscribes) unsubscribe() }
+      }, [open, entries, activeId, bump])
 
       /* The popup is placed from the trigger's viewport rect, so an ancestor's
          overflow cannot clip it, and it follows the trigger while it moves. */
@@ -560,18 +633,16 @@ window.__ModuleLoader__.load({
       }, [open])
 
       const refresh = useCallback(() => {
-        void store.read({ force: true })
-      }, [store])
+        for (const entry of entries) void entry.store.read({ force: true })
+      }, [entries])
 
-      const state = store.snapshot()
-      const now = Date.now()
-      const primaryWindow = state.usage?.[primary.key]
       const ringTitle = (() => {
+        if (active === undefined || primary === undefined) return chrome('noPlanForModel')
         const reset = localTime(primaryWindow?.resetsAt)
         const left = countdown(primaryWindow?.resetsAt, now)
-        if (reset === null) return t(primary.key)
+        if (reset === null) return active.t(primary.key)
         const remaining = remainingOf(primaryWindow)
-        return fill(t('ringTitle'), {
+        return fill(active.t('ringTitle'), {
           share: primary.share ?? '—',
           reset,
           in: left ?? '—',
@@ -581,77 +652,42 @@ window.__ModuleLoader__.load({
       })()
 
       const panel = open && position !== null ? h('div', {
+        key: 'panel',
         ref: popup,
         role: 'dialog',
-        'aria-label': t('label'),
+        'aria-label': chrome('dockLabel'),
         className: 'ocg-popup',
         style: { left: position.left, bottom: position.bottom, width: POPUP_WIDTH },
       }, [
-        h('div', {
-          key: 'head',
-          style: { display: 'flex', alignItems: 'center', gap: 6 },
-        }, [
-          h('span', {
-            key: 'title',
-            style: { fontWeight: 500, color: 'var(--dsw-alias-label-primary)' },
-          }, t('label')),
+        h('div', { key: 'head', className: 'ocg-popup__head' }, [
+          h('span', { key: 'title', className: 'ocg-popup__title' }, chrome('dockLabel')),
           h('button', {
             key: 'close',
             type: 'button',
             className: 'ocg-btn',
             style: { marginLeft: 'auto' },
-            title: t('close'),
-            'aria-label': t('close'),
+            title: chrome('close'),
+            'aria-label': chrome('close'),
             onClick: () => setOpen(false),
           }, '×'),
         ]),
 
-        state.phase === 'error'
-          ? h('div', {
-            key: 'body',
-            style: { color: 'var(--dsw-alias-state-warn-primary)' },
-          }, state.message)
-          : h('div', { key: 'body', style: { display: 'grid', gap: 8 } }, rest.map((window) =>
-            h(WindowRow, {
-              key: window.key,
-              label: t(window.key),
-              window: state.usage?.[window.key],
-              now,
-              t,
-            }))),
+        ...entries.map((entry) => h(QuotaSection, {
+          key: entry.widget.id,
+          entry: { ...entry, active: entry.widget.id === activeId },
+          now,
+          chrome,
+        })),
 
-        /* A plan that grants a boosted weekly allowance says so, because it
-           otherwise reads as a quota that failed to shrink. */
-        boostLabel === undefined || state.boostPermille === null || state.boostPermille === 1000
-          ? null
-          : h('div', {
-            key: 'boost',
-            style: { fontSize: 10, color: 'var(--dsw-alias-label-secondary)' },
-          }, boostLabel((state.boostPermille / 1000).toFixed(2).replace(/\.?0+$/, ''))),
-
-        h('div', {
-          key: 'foot',
-          style: {
-            display: 'flex', alignItems: 'center', gap: 8,
-            borderTop: '1px solid var(--dsw-alias-border-l1)', paddingTop: 6,
-          },
-        }, [
-          h('span', {
-            key: 'read',
-            style: { fontSize: 10, color: 'var(--dsw-alias-label-secondary)' },
-          }, state.phase === 'loading' || state.phase === 'idle'
-            ? t('loading')
-            : state.phase === 'error'
-              ? t('never')
-              : fill(t('updatedAt'), { time: localTime(state.fetchedAt) ?? '—' })),
+        h('div', { key: 'foot', className: 'ocg-popup__foot' }, [
           h('button', {
             key: 'refresh',
             type: 'button',
             className: 'ocg-btn',
             style: { marginLeft: 'auto' },
-            disabled: state.phase === 'loading',
+            disabled: entries.every((entry) => entry.store.snapshot().phase === 'loading'),
             onClick: refresh,
-          }, state.phase === 'loading' ? t('refreshing') : t('refresh')),
+          }, chrome('refresh')),
         ]),
       ]) : null
 
@@ -666,39 +702,61 @@ window.__ModuleLoader__.load({
           + '.ocg-btn:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}'
           /* One literal shadow: the theme publishes no elevation token, and a
              popover needs the separation. Everything else is a theme token. */
-          + '.ocg-popup{position:fixed;z-index:60;box-sizing:border-box;display:grid;gap:8px;padding:10px;border-radius:10px;'
+          + '.ocg-popup{position:fixed;z-index:60;box-sizing:border-box;display:grid;gap:10px;padding:10px;border-radius:10px;'
           + 'background:var(--dsw-alias-bg-overlay);border:1px solid var(--dsw-alias-border-l2);'
-          + 'box-shadow:0 6px 24px rgba(0,0,0,.18);color:var(--dsw-alias-label-secondary);font-size:11px;line-height:16px}'),
+          + 'box-shadow:0 6px 24px rgba(0,0,0,.18);color:var(--dsw-alias-label-secondary);font-size:11px;line-height:16px}'
+          + '.ocg-popup__head{display:flex;align-items:center;gap:6px}'
+          + '.ocg-popup__title{font-weight:500;color:var(--dsw-alias-label-primary)}'
+          + '.ocg-popup__foot{display:flex;align-items:center;gap:8px;border-top:1px solid var(--dsw-alias-border-l1);padding-top:6px}'
+          + '.ocg-section{display:grid;gap:6px;padding-top:8px;border-top:1px solid var(--dsw-alias-border-l1)}'
+          + '.ocg-section:first-of-type{border-top:0;padding-top:0}'
+          + '.ocg-section__head{display:flex;align-items:center;gap:6px}'
+          + '.ocg-section__name{font-weight:500;color:var(--dsw-alias-label-primary)}'
+          + '.ocg-chip{margin-left:auto;padding:0 5px;border-radius:999px;font-size:10px;line-height:15px;'
+          + 'color:var(--dsw-alias-brand-primary);border:1px solid var(--dsw-alias-brand-primary)}'
+          + '.ocg-section__body{display:grid;gap:8px}'
+          + '.ocg-section__status{font-size:10px;color:var(--dsw-alias-label-secondary)}'
+          + '.ocg-section__note{font-size:10px;color:var(--dsw-alias-label-secondary)}'
+          + '.ocg-section__error{color:var(--dsw-alias-state-warn-primary)}'),
 
         h('button', {
           key: 'trigger',
           ref: anchor,
           type: 'button',
           className: 'ocg-trigger',
-          /* A stable hook for testing and for inspecting the dock: both widgets
-             render the same markup, and their window labels can coincide. */
-          'data-quota-widget': widgetId,
+          /* A stable hook for testing and for inspecting the dock. */
+          'data-quota-widget': active === undefined ? 'none' : active.widget.id,
           'aria-haspopup': 'dialog',
           'aria-expanded': open,
           title: ringTitle,
           onClick: () => setOpen((value) => !value),
-        }, [
-          h('span', { key: 'label' }, t(primary.key)),
-          h(Ring, {
-            key: 'ring',
-            percent: isUnlimited(primaryWindow) ? 0 : (primaryWindow?.percent ?? null),
-            tone: toneOf(primaryWindow),
-          }),
-          h('span', {
-            key: 'value',
-            style: {
-              color: 'var(--dsw-alias-label-primary)',
-              fontVariantNumeric: 'tabular-nums',
-            },
-          }, isUnlimited(primaryWindow)
-            ? t('unlimited')
-            : formatPercent(typeof primaryWindow?.percent === 'number' ? primaryWindow.percent : null)),
-        ]),
+        }, active === undefined || primary === undefined
+          /* No plan to report for this model: still offer the popup, because
+             the answer to "is the other one usable?" is in there. */
+          ? [
+            h('span', { key: 'label' }, chrome('dockLabel')),
+            h('span', {
+              key: 'value',
+              style: { color: 'var(--dsw-alias-label-secondary)' },
+            }, '—'),
+          ]
+          : [
+            h('span', { key: 'label' }, active.t(primary.key)),
+            h(Ring, {
+              key: 'ring',
+              percent: isUnlimited(primaryWindow) ? 0 : (primaryWindow?.percent ?? null),
+              tone: toneOf(primaryWindow),
+            }),
+            h('span', {
+              key: 'value',
+              style: {
+                color: 'var(--dsw-alias-label-primary)',
+                fontVariantNumeric: 'tabular-nums',
+              },
+            }, isUnlimited(primaryWindow)
+              ? chrome('unlimited')
+              : formatPercent(typeof primaryWindow?.percent === 'number' ? primaryWindow.percent : null)),
+          ]),
 
         panel,
       ])
@@ -1071,17 +1129,17 @@ window.__ModuleLoader__.load({
            the settings page (which writes them), so both are the same object. */
         const preferences = createPreferences()
 
-        /* One store per widget for the whole activation: a control unmounts on
-           every conversation switch, and the figures must not follow it down.
-           A widget nobody is displaying simply has no subscribers, so its timer
-           stops and it makes no requests. */
+        /* One store per plan for the whole activation: the control unmounts on
+           every conversation switch, and the figures must not follow it down. A
+           plan nobody is displaying has no subscribers, so its timer stops and
+           it makes no requests. */
         const bound = QUOTA_WIDGETS.map((widget) => {
           const t = translatorFor(widget.ns)
           return {
             widget,
             t,
             store: createStore({ endpoint: widget.endpoint, translate: t }),
-            boostLabel: widget.ns === 'minimax-quota'
+            boostLabel: widget.boost === true
               ? (factor) => fill(t('boost'), { factor })
               : undefined,
           }
@@ -1105,43 +1163,34 @@ window.__ModuleLoader__.load({
         }
 
         /**
-         * Which widgets to show. `auto` follows the session's own model, so the
-         * one ring is always the quota the user is actually spending.
+         * The plan the session's model is spending, if this collection reads one
+         * for that provider. Absence is normal — the official DeepSeek account
+         * has no plan here — and the widget then shows a neutral trigger rather
+         * than disappearing, because the popup still answers the useful question.
          *
-         * `useProjection('modelSelection')` is a session-scoped standard hook,
-         * and this entry is session-scoped, so the scope matches. Its store
-         * always defines a face per key — an unknown or not-yet-populated key is
-         * an `undefined` snapshot, never a throw — so an unexpected provider
-         * leaves the dock empty instead of breaking the composer.
+         * `useProjection('modelSelection')` is a session-scoped standard hook and
+         * this entry is session-scoped, so the scope matches. Its store defines a
+         * face for every key, so an unknown or not-yet-populated projection is an
+         * `undefined` snapshot rather than a throw.
          */
-        function resolveWidgets(source, selection) {
-          if (source === QUOTA_SOURCE_OFF) return []
-          if (source === QUOTA_SOURCE_BOTH) return bound
-          if (source !== QUOTA_SOURCE_AUTO) {
-            return bound.filter((entry) => entry.widget.id === source)
-          }
+        function activeIdFor(selection) {
           const provider = selectedProvider(selection)
-          if (provider === undefined) return []
-          return bound.filter((entry) => entry.widget.providers.includes(provider))
+          if (provider === undefined) return undefined
+          const match = bound.find((entry) => entry.widget.providers.includes(provider))
+          return match?.widget.id
         }
 
         function QuotaDockEntry(props) {
-          const source = usePreference(preferences, 'quotaSource')
-          /* Reading the projection here is what makes the widget follow the
-             model: a model switch re-renders this entry with a new provider. */
+          const show = usePreference(preferences, 'showQuota')
+          /* Reading the projection here is what makes the ring follow the model:
+             a model switch re-renders this entry with a new provider. */
           const selection = props.useProjection?.('modelSelection')
-          const shown = resolveWidgets(source, selection)
-          if (shown.length === 0) return null
-          return h('div', { style: { display: 'inline-flex', alignItems: 'center' } },
-            shown.map((entry) => h(QuotaControl, {
-              ...props,
-              key: entry.widget.id,
-              t: entry.t,
-              store: entry.store,
-              widgetId: entry.widget.id,
-              windows: entry.widget.windows,
-              boostLabel: entry.boostLabel,
-            })))
+          if (show !== true) return null
+          return h(QuotaControl, {
+            entries: bound,
+            activeId: activeIdFor(selection),
+            chrome: bet,
+          })
         }
 
         ctx.slots.inject('conversation.composer.dock', () => ctx.slots.register({

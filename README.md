@@ -9,12 +9,17 @@ plugins, delivered as **one bundle**.
 | [`minimax-quota`](plugins/minimax-quota) | Reads the MiniMax M Plan's 5-hour and weekly allowance |
 | [`better-experience`](plugins/better-experience) | The Settings page holding this collection's global preferences |
 
-The two quota plugins no longer render their own widget. They are the two
-**Host halves and their copy**; the single ring below the composer is drawn by
-this collection's shared browser half, which **follows the session's model** —
-switch a session to MiniMax and the ring becomes the MiniMax allowance, with no
-reload. **Better experience → Display** pins it to one provider, shows both, or
-turns it off.
+The two quota plugins no longer render widgets of their own. They are the two
+**Host halves and their copy**; the single control below the composer is drawn
+by this collection's shared browser half.
+
+Its ring **follows the session's model** — switch the session to MiniMax and the
+ring becomes the MiniMax allowance, with no reload — and its **popup lists both
+plans**, so when one is exhausted you can see at a glance whether the other still
+has room. The plan you are not spending is read only while that popup is open.
+
+**Better experience → Display** turns the whole control off, which unmounts it
+so no requests are made at all.
 
 Preferences are live: changing one takes effect at once, with no reload.
 
@@ -170,7 +175,7 @@ value rather than the bit itself, and one control — a switch or a `select`.
 
 | Preference | Key | Default | What it does |
 | --- | --- | --- | --- |
-| Quota shown below the composer | `quota-source` | `auto` | `auto` follows the session's model; the others pin the ring to OpenCode Go, pin it to MiniMax, show both, or show neither. |
+| Show the usage limits | `show-quota` | **on** | Shows the control below the composer: a ring that follows the session's model, and a popup listing both plans. Turning it off unmounts the control, so no requests are made. |
 | Notify when a task completes | `notify-on-completion` | off | Sends a desktop notification when the model finishes a turn. |
 
 Keys live under `localStorage['dsh-plugins.better-experience.<name>']`, so a
@@ -184,9 +189,29 @@ The live values are not read from `localStorage` on every render: `storage`
 events do not fire in the tab that wrote them, so that would not wake a
 mounted view anyway. Instead one in-memory store is created per activation
 and shared by every subscriber — the settings page writes it, and the
-composer ring reads it. That is what makes a change take effect
+composer control reads it. That is what makes a change take effect
 **immediately, with no reload**; `localStorage` is only the durable layer
 behind it. Both are exercised by the repository's offline checks (below).
+
+### The popup, and what gets read when
+
+The popup exists to answer one question: *with this plan spent, does the other
+one still have room?* So it lists **every** plan this collection can read, each
+with all of its windows, and marks the one the session is currently spending.
+
+That shapes the request pattern, which is otherwise easy to get wrong:
+
+| State | What is read |
+| --- | --- |
+| Control mounted, popup closed | the plan the model is spending only — the ring's figure |
+| Popup open | the other plans too, once, as it opens |
+| Popup closed again | the other plans' subscriptions drop, so their timers stop |
+| Control unmounted (preference off) | nothing at all |
+
+So a plan you are not using is never polled in the background, and a plan you
+are using is read on the same paced schedule as before. Each section prints its
+own read time rather than one shared line, because the two can legitimately
+differ — one is on a timer and the other was fetched on demand.
 
 ### How the ring follows the model
 
@@ -202,6 +227,11 @@ current choice — and falls back to `lastUsed` for a session whose next selecti
 has not been written yet. (The composer's own model picker merges this
 projection with a catalog store of its own under a `current` key; that is its
 internal shape, not the projection's, and reading it here finds nothing.)
+
+When the model is on a provider this collection has no plan for — the official
+DeepSeek account, say — the trigger stays but shows no ring, and the popup still
+lists both plans. That is deliberate: the trigger disappearing would take away
+the only way to ask the question the popup answers.
 
 Two properties make that safe rather than fragile:
 
@@ -235,17 +265,23 @@ render-time failures that a browser only reports as a blank slot:
 
 ```
 node render-test.cjs   <client.js>                    # both entries render
-node interact-test.cjs <client.js>                    # source resolution, no Notifications API
-node interact-test.cjs <client.js> --notifications    # source resolution, permission granted
+node interact-test.cjs <client.js>                    # ring, popup, no Notifications API
+node interact-test.cjs <client.js> --notifications    # ring, popup, permission granted
 ```
 
 `interact-test.cjs` mounts both entries in a jsdom DOM and drives the real
-controls, so it covers what static rendering cannot see: that the ring follows
-the model selection, that a provider with no widget shows nothing, that an
-absent projection shows nothing **without throwing**, that each `quota-source`
-value resolves to the right set of rings, and that the choice persists. It also
-supplies the root standard seat with hooks that throw, which is how a stray
-session-hook call in a root-scoped page is caught before it blanks the page.
+controls, so it covers what static rendering cannot see:
+
+- the ring follows the model selection, and a **pending** selection wins over the
+  last one actually used;
+- an absent projection does not throw;
+- opening the popup lists **both** plans in a stable order, marks the one in use,
+  and still does so when the current model has no plan here (that trigger stays
+  reachable and reports no ring);
+- turning the control off unmounts it, and the preference round-trips.
+
+It also supplies the root standard seat with hooks that throw, which is how a
+stray session-hook call in a root-scoped page is caught before it blanks the page.
 
 ## Repository layout
 
@@ -278,11 +314,16 @@ plugins/
 A subpath plugin exports its own `locale/*.json` and `icon` for display and is
 never read as a package of its own.
 
-The two quota widgets share one browser implementation: each Host half
-normalizes its provider's envelope into the same window shape (`percent` = the
-share USED, plus `resetsAt`), and `QUOTA_WIDGETS` in `client.js` names the route,
-the order and the window labels. A third provider is therefore a Host half, a
-`QUOTA_WIDGETS` entry, and two `PREFERENCES` rows — no new view code.
+Both quota plans share one browser implementation: each Host half normalizes its
+provider's envelope into the same window shape (`percent` = the share USED, plus
+`resetsAt`), and a `QUOTA_WIDGETS` entry in `client.js` names the route, the
+providers it answers for, and its window labels. Shared chrome copy lives once in
+the `better-experience` dictionary; a Host half's own dictionary carries only
+what is genuinely specific to it.
+
+A third plan is therefore a Host half, a `QUOTA_WIDGETS` entry and two
+dictionaries — no new view code, and it appears in the popup beside the others
+automatically.
 
 ### Why there is a separate root row
 
