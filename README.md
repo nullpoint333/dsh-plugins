@@ -40,6 +40,45 @@ configuration, so an SSH remote or an internally mirrored URL works the same way
 There are no dependencies, no install scripts and no build step: the JavaScript
 files are the whole implementation.
 
+### First-time install on a new machine
+
+The install spec above gets the bundle on disk, but four rows are required to
+get the quota control actually showing. Enable each one in the Plugins page
+right after install (or by re-running `plugin_manager` with `set_bundle` /
+`set_plugin`):
+
+| Row | Why it has to be on |
+| --- | --- |
+| `dsh-plugins-host` | The container row from the repo root; every other row runs inside it. Without it, nothing else mounts. |
+| `opencode-go-usage` | The Host half that reads the OpenCode Go subscription. With it off, the popup's OpenCode section reads nothing. |
+| `minimax-quota` | The Host half that reads the MiniMax M Plan. Same as above for the MiniMax section. |
+| `better-experience` | The Settings page that holds **Settings → Better experience → Display** — the only place the user can turn the whole control off. With it off, the control still works, but there is no way to toggle it. |
+
+The control's visibility is a per-user `localStorage` value
+(`dsh-plugins.better-experience.show-quota`), default **on**, so a fresh browser
+shows the ring immediately. The ring is the default because turning it off
+must be an explicit choice; it would be wrong to ship a plugin that mutes
+itself on first install and asks the user to find a Settings page to enable it.
+
+Credentials are read from the Harness process's environment, not from this
+repository — the Host halves do not store them, and the bundle does not read
+`~/.bashrc` for you:
+
+| Plugin | Reads from |
+| --- | --- |
+| `opencode-go-usage` | `OPENCODE_GO_API_KEY` |
+| `minimax-quota` | `MINIMAX_CN_API_KEY` (and its Chinese variant) |
+
+If Harness runs as a service, put the variables in its unit's `Environment=`,
+not in your shell, so they survive a restart. A missing key shows up in the
+popup as a clear "is not configured" line; the ring stays rather than
+disappearing, so the user always has a way to see what is wrong.
+
+If the company machine can only reach GitHub through an internal mirror, point
+`git`'s `insteadOf` at it; `plugin_manager` uses the profile directory's own
+git and proxy configuration, so the install path is the same as for any other
+repository your team clones.
+
 ## Plugins
 
 ### `opencode-go-usage`
