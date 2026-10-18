@@ -1,10 +1,18 @@
-# The layer this bundle contributes to the desktop profile.
-# Every field is optional; the Host half applies the defaults below when a
-# field is absent, so overriding `config` from the profile's own patch layer
-# replaces only what you name.
+# Rows this collection contributes. Every plugin is a SUBPATH of the one package,
+# so they all arrive through a single install: the package is `dsh-plugins`, and
+# a row named `dsh-plugins/<plugin>` addresses one plugin inside it.
+#
+# The first row names the package ROOT, and it is load-bearing: a Host composes a
+# package's browser half from `exports["./client"]`, and it scans a row for that
+# declaration only when the row is the package root. A subpath row alone gets no
+# browser bundle. Keeping this row separate from the feature plugins is what lets
+# each feature be enabled or disabled on its own.
 - insert:
+    - id: dsh-plugins-host
+      name: 'dsh-plugins'
+
     - id: opencode-go-usage
-      name: 'dsh-opencode-go-usage'
+      name: 'dsh-plugins/opencode-go-usage'
       config:
         # Quota endpoint of the OpenCode Go subscription.
         endpoint: 'https://opencode.ai/zen/go/v1/usage'

@@ -1,5 +1,5 @@
 /**
- * Host half of `dsh-opencode-go-usage`.
+ * Host half of `dsh-plugins/opencode-go-usage`.
  *
  * OpenCode Go defines its allowance as a monthly dollar amount per model, with
  * a rolling 5-hour window at 20% of it, a weekly window at 50%, and the month
@@ -11,7 +11,7 @@
  * loopback HTTP route. That route is registered as an `exact` route, so the
  * server matches it before the Web shell's fallback handler.
  *
- * @module dsh-opencode-go-usage
+ * @module dsh-plugins/opencode-go-usage
  */
 
 /** The one route the Client half fetches. */

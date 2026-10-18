@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "OpenCode Go 限额",
+    "description": "在输入框下方显示 OpenCode Go 订阅的 5 小时、周、月限额，包含每个窗口已用比例与重置时间。"
+  }
+}

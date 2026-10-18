@@ -1,5 +1,5 @@
 /**
- * Client half of `dsh-opencode-go-usage`.
+ * Client half of `dsh-plugins`.
  *
  * Renders the OpenCode Go allowance below the composer: the rolling 5-hour
  * window, the week, and the month, each as a used share of its own allowance.
@@ -7,7 +7,7 @@
  * API key.
  */
 window.__ModuleLoader__.load({
-  id: 'dsh-opencode-go-usage',
+  id: 'dsh-plugins',
   factory(require) {
     const React = require('react')
     const h = React.createElement

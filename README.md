@@ -1,7 +1,11 @@
-# dsh-opencode-go-usage
+# dsh-plugins
 
-Shows the **OpenCode Go** subscription allowance inside the Harness Web UI, in the
-ambient row below the composer (slot `conversation.composer.dock`).
+A collection of [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)
+plugins, delivered as **one bundle**.
+
+| Plugin | What it does |
+| --- | --- |
+| [`opencode-go-usage`](plugins/opencode-go-usage) | Shows the OpenCode Go subscription's 5-hour, weekly and monthly quota below the composer |
 
 ## Install
 
@@ -9,26 +13,20 @@ Needs a DSH whose profile carries the Web carrier (`dsh-web-app`). Install the
 bundle from the sidebar's **Plugins** page, or with the `plugin_manager` tool:
 
 ```jsonc
-{ "action": "install_bundle", "target": "github:nullpoint333/dsh-opencode-go-usage" }
+{ "action": "install_bundle", "target": "github:nullpoint333/dsh-plugins" }
 ```
 
-The manager verifies a GitHub repository with `git ls-remote` before installing,
-using the profile directory's own Git and proxy configuration, so an SSH remote or
-an internally mirrored URL works the same way.
+One install brings in every plugin in this repository, and each row can then be
+enabled or disabled on its own. The manager verifies a GitHub repository with
+`git ls-remote` before installing, using the profile directory's own Git and proxy
+configuration, so an SSH remote or an internally mirrored URL works the same way.
 
-The strip can only read a quota once the machine has an OpenCode Go key:
+There are no dependencies, no install scripts and no build step: the JavaScript
+files are the whole implementation.
 
-- the profile credential store as `OPENCODE_GO_API_KEY` — what `dsh` writes when
-  you connect the `opencode-go` provider — or
-- the same-named process environment variable.
+## Plugins
 
-The allowance belongs to the account behind that key, so each machine shows its
-own quota rather than a shared total.
-
-There are no dependencies, no install scripts and no build step: the two
-JavaScript files are the whole implementation.
-
-## What it displays
+### `opencode-go-usage`
 
 OpenCode Go defines every allowance as a monthly dollar amount per model, and
 derives the shorter windows from it:
@@ -39,11 +37,10 @@ derives the shorter windows from it:
 | Week | 50% of the monthly limit | `weekly` |
 | Month | 100% of the monthly limit | `monthly` |
 
-Each window shows the **used share** as a percentage and a small bar; hovering a
-window gives the exact reset instant and a countdown. The strip refreshes every
-60 seconds, whenever the page becomes visible again, and on the `⟳` button.
-
-## How it reads the data
+The strip under the composer shows each window's **used share** as a percentage
+and a small bar; hovering one gives the exact reset instant and a countdown. It
+refreshes every 60 seconds, whenever the page becomes visible again, and on the
+`⟳` button.
 
 `GET https://opencode.ai/zen/go/v1/usage` returns:
 
@@ -54,19 +51,17 @@ window gives the exact reset instant and a countdown. The strip refreshes every
   "monthly": { "status": "ok", "percent": 0, "resetsAt": "2026-11-18T06:01:17.000Z" } } }
 ```
 
-That call needs the bearer key, so it stays on the Host half. The Client half
+That call needs the bearer key, so it stays on the Host half. The browser half
 fetches only the projected percentages and reset instants from
-`/plugin/opencode-go-usage/quota`, a loopback route this bundle registers, and
-never receives the key.
+`/plugin/opencode-go-usage/quota`, a loopback route this plugin registers, and
+never receives the key. The key is resolved per request through
+`ctx.credentials` as `OPENCODE_GO_API_KEY` — so a rotated credential reaches the
+next call without a restart — falling back to the same-named environment
+variable. The allowance belongs to the account behind that key, so each machine
+shows its own quota.
 
-The key is resolved per request through `ctx.credentials`, so a rotated
-credential reaches the next call without a restart. It falls back to the
-same-named process environment variable when the credential service is absent.
-
-## Configuration
-
-Optional; every field has a default, so the row may carry an empty `config`.
-Override it from the profile's own `cordis.patch.yml`:
+Configuration (optional; every field has a default) is overridden from the
+profile's own `cordis.patch.yml`:
 
 ```yaml
 - id: opencode-go-usage
@@ -77,51 +72,77 @@ Override it from the profile's own `cordis.patch.yml`:
     requestTimeoutMs: 15000
 ```
 
-## Requirements and limits
-
-- Needs the Web carrier (`ctx.webServer`). An Electron-only profile loads the
-  page over `file://` and this bundle stays inactive.
-- The route is registered as an `exact` route, so it is matched before the Web
-  shell's fallback handler, and it is **not** behind the connection's own
-  authorization. It exposes quota percentages only — never the key — and the
-  listener is loopback-bound by the `webserver` row's `host` config.
-- `status` values other than `ok` and a used share of 100% render as an error,
-  a share of 80% or more as a warning.
-
 ## Repository layout
 
 The repository root **is** the package root, which is what makes
-`github:nullpoint333/dsh-opencode-go-usage` a valid install target: an install spec
-names a repository, and the manager imports the package it finds there.
+`github:nullpoint333/dsh-plugins` a valid install target: an install spec names a
+repository, and the manager imports the package it finds there.
 
 ```
-package.json          bundle + client declaration, exports
-cordis.patch.yml      the Loader row this bundle inserts
-index.js              Host half — owns the upstream call and the route
-client.js             Client half — exports["./client"], the browser bundle
-locale/{en,zh}.json   plugin-manager title and description
-icon.svg              plugin artwork
-LICENSE, README.md
+package.json                      the one package: bundle + client declaration
+cordis.patch.yml                  one Loader row per plugin, plus the root row
+host.js                           package-root row (see below)
+client.js                         the package's single browser half — all UI
+locale/{en,zh}.json               the bundle's card in the Plugins page
+icon.svg
+plugins/
+  opencode-go-usage/
+    index.js                      Host half: upstream call + loopback route
+    locale/{en,zh}.json           this plugin's own row in the Plugins page
+    icon.svg
 ```
 
-### Adding a second plugin
+A subpath plugin exports its own `locale/*.json` and `icon` for display and is
+never read as a package of its own.
 
-A browser half belongs to a **package**, not to a Loader row: the module id is
-the package name, and the host composes a bundle from the package's
-`exports["./client"]`. The host scans a row for that declaration only when the
-row is the **package root** — verified here by inserting one probe package twice,
-first as `pkg/probe` and then as `pkg`, where only the second form produced a
-live slot registration. So:
+### Why there is a separate root row
 
-- A plugin **with a UI** must be its own package and be inserted as a
-  package-root row. One plugin per repository keeps `github:<owner>/<repo>`
-  working.
-- Several plugins may share one package only as **subpath** rows
-  (`name: pkg/component`), which is the `dsh-ops` pattern — but then they share
-  that package's single browser half, and any UI must be contributed by it.
-- A monorepo of packages is fine for source layout, but a single git spec cannot
-  address a subdirectory, so those packages reach users through a registry or a
-  local path instead.
+A browser half belongs to a **package**, not to a Loader row: the module id is the
+package name, and the Host composes the bundle from the package's
+`exports["./client"]`. The Host scans a row for that declaration only when the row
+names the **package root** — verified here by inserting one probe package twice,
+first as `pkg/probe` and then as `pkg`, where only the second form produced a live
+slot registration.
+
+So `host.js` is the anchor and registers nothing itself. Keeping the anchor
+separate from the feature plugins is deliberate: if a feature plugin were the
+root, disabling it would take every other plugin's UI down with it.
+
+### Adding a plugin
+
+1. `plugins/<name>/index.js` — the Host half. Export `apply(ctx, config)` and
+   declare `inject` for the services it needs.
+2. Add `"./<name>": "./plugins/<name>/index.js"` to `exports`, plus its
+   `./<name>/locale/*.json` and `./<name>/icon` when it has display metadata.
+3. Add a row to `cordis.patch.yml`:
+
+   ```yaml
+   - id: <name>
+     name: 'dsh-plugins/<name>'
+   ```
+4. For UI, register from `client.js` — the one bundle every plugin shares; there
+   is no per-plugin browser bundle.
+5. `plugins/<name>/locale/{en,zh}.json` gives the plugin its own title and
+   description in the Plugins page.
+
+Two consequences to know before choosing this layout:
+
+- All UI shares one bundle, so a plugin with a UI cannot be published from this
+  repository on its own — it is always part of the collection.
+- A single git spec cannot address a subdirectory, so splitting this into several
+  packages under one repository would move distribution from `github:` installs
+  to a registry.
+
+## Requirements and limits
+
+- `opencode-go-usage` needs the Web carrier (`ctx.webServer`). An Electron-only
+  profile loads the page over `file://` and that plugin stays inactive.
+- Its route is registered as an `exact` route, so it is matched before the Web
+  shell's fallback handler and is **not** behind the connection's own
+  authorization. It exposes quota percentages only — never the API key — and the
+  listener is loopback-bound by the `webserver` row's `host` config.
+- `status` values other than `ok` and a used share of 100% render as an error, a
+  share of 80% or more as a warning.
 
 ### Switching between a working copy and the published package
 
@@ -131,8 +152,8 @@ symmetric — `remove_bundle` reports `applied` but pnpm leaves the
 `node_modules/<name>` symlink behind, and the next install then fails with:
 
 ```
-[ERR_PNPM_EPERM] [importPackage ...\node_modules\dsh-opencode-go-usage]
-EPERM: operation not permitted, rename '..._tmp_<pid>_<n>' -> '...\dsh-opencode-go-usage'
+[ERR_PNPM_EPERM] [importPackage ...\node_modules\dsh-plugins]
+EPERM: operation not permitted, rename '..._tmp_<pid>_<n>' -> '...\dsh-plugins'
 ```
 
 Delete that leftover symlink before installing the published package, and let the
