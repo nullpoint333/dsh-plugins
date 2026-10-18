@@ -6,7 +6,10 @@ plugins, delivered as **one bundle**.
 | Plugin | What it does |
 | --- | --- |
 | [`opencode-go-usage`](plugins/opencode-go-usage) | Shows the OpenCode Go subscription's 5-hour, weekly and monthly quota below the composer |
-| [`better-experience`](plugins/better-experience) | A Settings page that holds this collection's global preferences. Ships with one today: a desktop notification when the model finishes a turn. |
+| [`better-experience`](plugins/better-experience) | The Settings page that holds this collection's global preferences — today, whether the quota ring is shown and whether a desktop notification fires when a task ends. |
+
+Preferences are live: changing one on the **Better experience** page takes
+effect at once, with no reload.
 
 ## Install
 
@@ -89,32 +92,55 @@ This plugin owns the **Better experience** Settings page — a place for the
 collection's global preferences to live, so the next plugin that needs a
 preference does not have to invent its own page.
 
-The page carries one preference today:
+The page renders one section per concern, and each row is: a label, a
+description, a status line that states the **consequence** of the current
+value rather than the bit itself, and the switch.
 
-| Preference | Default | What it does |
-| --- | --- | --- |
-| Notify when a task completes | off | Sends a desktop notification when the model finishes a turn. The browser must grant the notification permission; once it has, the toggle is the only switch. |
+| Preference | Key | Default | What it does |
+| --- | --- | --- | --- |
+| Show the OpenCode Go quota | `show-quota` | **on** | Shows the ring below the composer. Turning it off is a real off switch, not a hidden element: with nothing mounted the quota store has no subscribers, so its timer stops and no requests are made. |
+| Notify when a task completes | `notify-on-completion` | off | Sends a desktop notification when the model finishes a turn. |
 
-The page renders one row: a label, a description, a status line that
-explains what the current state means, and the toggle itself. Below the
-toggle, a **Send a test notification** action appears when the API is
-available, so the user can verify the OS-level permission and the runtime
-without waiting for a real task to end. The runtime lives on the page: the
-shell gives the section the `useSessionStatus` hook as one of its standard
-props, and the page subscribes to it; on every running → idle transition
-of the active session, it fires a `new Notification(t('notifTitle'), { body,
-tag: 'dsh-plugins:<sessionId>' })` if the toggle is on. The `tag` is the
-session id, so a fresh task on the same session replaces the previous
-notification rather than stacking a new one.
+Keys live under `localStorage['dsh-plugins.better-experience.<name>']`, so a
+future plugin in this collection cannot collide with them. A value equal to
+its default is stored by **removing** the key, which lets a later release
+change a default without a migration.
 
-State is held in `localStorage` under
-`dsh-plugins.better-experience.notify-on-completion`. The key is namespaced
-so future collection-wide preferences do not collide with this one.
+The live values are not read from `localStorage` on every render: `storage`
+events do not fire in the tab that wrote them, so that would not wake a
+mounted view anyway. Instead one in-memory store is created per activation
+and shared by every subscriber — the settings page writes it, and the
+composer ring reads it. That is what makes the quota toggle take effect
+**immediately, with no reload**; `localStorage` is only the durable layer
+behind it. Both are exercised by the repository's offline checks (below).
 
-The Settings page mounts only while the settings panel is open, so
-notifications fire for the duration the user is in the panel. If you need
-notifications while the panel is closed, leave the panel open in a
-background tab.
+### The notification row today
+
+The row, its persistence, and its availability handling work, and a **Send a
+test notification** action verifies the OS-level permission and the API path
+without waiting for a real task to end. Firing automatically on task
+completion is **not implemented yet**: it needs session state, and a
+`settings.section` page is root-scoped, so it cannot read a session-scoped
+hook. That runtime belongs in a session-scoped seat (the composer dock
+alongside the quota ring), sharing this same preference store.
+
+## Offline checks
+
+The browser half can be verified without a browser. Both scripts load
+`client.js` through the module-loader shim and inject React, so they catch
+render-time failures that a browser only reports as a blank slot:
+
+```
+node render-test.cjs   <client.js>                    # both entries render
+node interact-test.cjs <client.js>                    # toggles, no Notifications API
+node interact-test.cjs <client.js> --notifications    # toggles, permission granted
+```
+
+`interact-test.cjs` mounts both entries in a jsdom DOM and clicks the real
+toggles, so it covers the shared-store reactivity that static rendering
+cannot see. It also supplies the root standard seat with hooks that throw,
+which is how a stray session-hook call in a root-scoped page is caught
+before it blanks the page.
 
 ## Repository layout
 

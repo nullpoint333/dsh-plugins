@@ -83,11 +83,49 @@ window.__ModuleLoader__.load({
     }
 
     const BETTER_EXPERIENCE_NS = 'better-experience'
-    const BETTER_EXPERIENCE_STORAGE_KEY = 'dsh-plugins.better-experience.notify-on-completion'
+
+    /**
+     * The collection's global preferences, in one table. Adding a preference
+     * means adding an entry here plus its copy in the dictionary; the page
+     * renders the rows from this list, so no view code changes.
+     *
+     * Keys are namespaced under `dsh-plugins.better-experience.*` so a future
+     * plugin in this collection cannot collide with one of these.
+     */
+    const PREFERENCES = [
+      {
+        id: 'showQuota',
+        storageKey: 'dsh-plugins.better-experience.show-quota',
+        /** Showing the ring is the plugin's whole point, so it defaults on. */
+        default: true,
+        heading: 'displayHeading',
+        label: 'showQuotaLabel',
+        description: 'showQuotaDescription',
+        statusOn: 'showQuotaStatusOn',
+        statusOff: 'showQuotaStatusOff',
+      },
+      {
+        id: 'notifyOnCompletion',
+        storageKey: 'dsh-plugins.better-experience.notify-on-completion',
+        /** Desktop notifications need an explicit grant, so this defaults off. */
+        default: false,
+        heading: 'notifyHeading',
+        label: 'notifyLabel',
+        description: 'notifyDescription',
+        statusOn: 'notifyStatusOn',
+        statusOff: 'notifyStatusOff',
+      },
+    ]
+
     const BETTER_EXPERIENCE_DICT = {
       en: {
         sectionTitle: 'Better experience',
         sectionDescription: 'Global preferences shared by every plugin in this collection.',
+        displayHeading: 'Display',
+        showQuotaLabel: 'Show the OpenCode Go quota',
+        showQuotaDescription: 'Shows the rolling 5-hour window as a ring below the composer; opening it reveals the weekly and monthly windows. Turning this off also stops the quota requests, since nothing is left to display them.',
+        showQuotaStatusOn: 'On — the ring is shown below the composer.',
+        showQuotaStatusOff: 'Off — the ring is hidden and no quota requests are made.',
         notifyHeading: 'Notifications',
         notifyLabel: 'Notify when a task completes',
         notifyDescription: 'Send a desktop notification when the model finishes a turn. The browser must grant the notification permission; once granted, the runtime is active while this settings page is open.',
@@ -105,6 +143,11 @@ window.__ModuleLoader__.load({
       zh: {
         sectionTitle: '更好的体验',
         sectionDescription: '本插件集合中所有插件共享的全局偏好。',
+        displayHeading: '显示',
+        showQuotaLabel: '显示 OpenCode Go 额度',
+        showQuotaDescription: '在输入框下方以圆环显示 5 小时滚动窗口，点击可展开周、月额度。关闭后同时也停止额度请求——因为已经没有需要展示的地方。',
+        showQuotaStatusOn: '已开启 — 输入框下方显示额度圆环。',
+        showQuotaStatusOff: '已关闭 — 不显示额度圆环，也不会请求额度数据。',
         notifyHeading: '通知',
         notifyLabel: '任务完成时发送通知',
         notifyDescription: '在模型完成一轮时发送桌面通知。浏览器需要授予通知权限；授予后，只要设置页保持打开，运行时就会持续生效。',
@@ -497,27 +540,79 @@ window.__ModuleLoader__.load({
     /* --- better-experience ------------------------------------------------- */
 
     /**
-     * The page's preference, persisted to `localStorage` so it survives a page
-     * reload without owning any Host storage. Reads tolerate a missing or blocked
-     * store: notifications default to off, the toggle is honest, and a bad
-     * value resets to the default rather than throwing.
+     * The collection's one preference store, created per activation and shared
+     * by the settings page and by whoever acts on a preference.
+     *
+     * `localStorage` is the durable layer, but it cannot wake a mounted view:
+     * `storage` events do not fire in the tab that wrote the value. So the
+     * store keeps the live values in memory and publishes on every change,
+     * which is what makes the settings toggle reach the composer ring without
+     * a reload. Reads tolerate a missing or blocked store (private mode, a
+     * partitioned origin): the defaults stand and the toggles stay honest.
      */
-    function readNotifyEnabled() {
-      try {
-        return globalThis.localStorage?.getItem(BETTER_EXPERIENCE_STORAGE_KEY) === 'true'
-      } catch {
-        return false
+    function createPreferences() {
+      const values = {}
+      const listeners = new Set()
+
+      const read = (preference) => {
+        try {
+          const stored = globalThis.localStorage?.getItem(preference.storageKey)
+          if (stored === 'true') return true
+          if (stored === 'false') return false
+        } catch {
+          /* Fall through to the default. */
+        }
+        return preference.default
+      }
+
+      for (const preference of PREFERENCES) values[preference.id] = read(preference)
+
+      const publish = () => {
+        for (const listener of [...listeners]) listener()
+      }
+
+      return {
+        get: (id) => values[id] === true,
+        set: (id, next) => {
+          if (values[id] === next) return
+          values[id] = next
+          const preference = PREFERENCES.find((entry) => entry.id === id)
+          if (preference !== undefined) {
+            try {
+              /* Absent means "default", so the default is stored by removal:
+                 a later release can change a default without a migration. */
+              if (next === preference.default) {
+                globalThis.localStorage?.removeItem(preference.storageKey)
+              } else {
+                globalThis.localStorage?.setItem(preference.storageKey, String(next))
+              }
+            } catch {
+              /* A blocked store is a non-fatal degradation; the in-memory
+                 value still drives this session. */
+            }
+          }
+          publish()
+        },
+        subscribe: (listener) => {
+          listeners.add(listener)
+          return () => { listeners.delete(listener) }
+        },
       }
     }
 
-    function writeNotifyEnabled(value) {
-      try {
-        if (value) globalThis.localStorage?.setItem(BETTER_EXPERIENCE_STORAGE_KEY, 'true')
-        else globalThis.localStorage?.removeItem(BETTER_EXPERIENCE_STORAGE_KEY)
-      } catch {
-        /* A blocked store is a non-fatal degradation; the toggle still reflects
-           intent in-memory, and the next reload will ask again. */
-      }
+    /**
+     * Subscribe one component to the preference store. Returns the value and
+     * re-renders its component on any preference change; the store is the same
+     * object for the whole activation, so a change made on the settings page
+     * lands in the composer ring too.
+     */
+    function usePreference(preferences, id) {
+      const [, setRevision] = useState(0)
+      useEffect(
+        () => preferences.subscribe(() => setRevision((value) => value + 1)),
+        [preferences],
+      )
+      return preferences.get(id)
     }
 
     /**
@@ -535,37 +630,57 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * The page itself.
+     * One preference row: label, description, the line that states the
+     * current consequence, an optional extra block, and the switch.
+     */
+    function PreferenceRow({ t, label, description, status, checked, disabled, onChange, children }) {
+      return h('div', { className: 'bex-row' }, [
+        h('div', { key: 'body' }, [
+          h('p', { key: 'label', className: 'bex-row__label' }, label),
+          h('p', { key: 'desc', className: 'bex-row__description' }, description),
+          h('p', { key: 'status', className: 'bex-row__status' }, status),
+          children ?? null,
+        ]),
+        h('button', {
+          key: 'toggle',
+          type: 'button',
+          role: 'switch',
+          className: 'bex-toggle',
+          'aria-checked': checked === true,
+          'aria-label': label,
+          disabled: disabled === true,
+          onClick: onChange,
+        }, h('span', { key: 'knob', className: 'bex-toggle__knob' })),
+      ])
+    }
+
+    /**
+     * The page itself: the collection's preference hub. Rows come from the
+     * PREFERENCES table, so a new global option is a table entry plus its copy.
      *
      * Scope rule, learned the hard way: the renderer assembles a root entry's
      * props with `standardKit`, which spreads the ROOT standard binding — so
      * hooks such as `useSessions` and `useSessionStatus` really are present on
-     * the props object here. But a session-scoped hook has no source for a
+     * the props object here. A session-scoped hook has no source for a
      * root-scoped entry, and the loader reports that as a `SlotAssemblyError`.
-     * The entry error boundary RETHROWS that class instead of containing it,
-     * so the whole page renders blank with nothing in the UI to explain why.
-     * A `settings.section` page is root-scoped: this component therefore calls
-     * only React's own hooks, and reads no standard hook at all. Session state
-     * belongs to a session-scoped slot, not to this page.
+     * The entry error boundary RETHROWS that class instead of containing it, so
+     * a stray call renders the whole page blank with nothing in the UI to
+     * explain why. A `settings.section` page is root-scoped: this component
+     * therefore calls only React's own hooks, and reads no standard hook.
      *
-     * v1 ships the form plus a "send a test notification" action, which
-     * confirms the permission grant and the API path on this machine. Firing
-     * on task completion needs a session-scoped seat and is deliberately not
-     * attempted from here.
+     * Preference values come from the shared store, which is also what the
+     * composer ring reads — so a toggle here takes effect immediately, without
+     * a reload.
      */
-    function BetterExperiencePage({ t }) {
-      const [enabled, setEnabled] = useState(() => readNotifyEnabled())
-      const capability = useMemo(notificationCapability, [enabled])
-      const onEnabledChange = useCallback((next) => {
-        writeNotifyEnabled(next)
-        setEnabled(next)
-      }, [])
+    function BetterExperiencePage({ t, preferences }) {
+      /* Both reads subscribe this component to the store, so either toggle
+         re-renders the page — and, because the composer ring subscribes to the
+         same store, it follows along without a reload. */
+      const notifyEnabled = usePreference(preferences, 'notifyOnCompletion')
+      const showQuota = usePreference(preferences, 'showQuota')
+      const capability = useMemo(notificationCapability, [notifyEnabled])
       const [testState, setTestState] = useState('idle')
       const [errorMessage, setErrorMessage] = useState(null)
-
-      const toggle = useCallback(() => {
-        onEnabledChange(!enabled)
-      }, [enabled, onEnabledChange])
 
       const sendTest = useCallback(async () => {
         setErrorMessage(null)
@@ -600,16 +715,14 @@ window.__ModuleLoader__.load({
         }
       }, [t])
 
-      /* The status line under the toggle tells the user what will happen. */
-      const statusLine = (() => {
+      /* The status line under a toggle states the consequence, not the bit. */
+      const notifyStatus = (() => {
         if (capability === 'unsupported') return t('notifyStatusUnsupported')
         if (capability === 'denied') return t('notifyStatusBlocked')
-        return enabled ? t('notifyStatusOn') : t('notifyStatusOff')
+        return notifyEnabled ? t('notifyStatusOn') : t('notifyStatusOff')
       })()
 
-      const canSendTest = capability !== 'unsupported'
-
-      return h('div', { className: 'bex-page', style: { display: 'grid', gap: 16, padding: '16px 20px' } }, [
+      return h('div', { className: 'bex-page', style: { display: 'grid', gap: 20, padding: '16px 20px' } }, [
         h('style', { key: 'style' },
           '.bex-toggle{position:relative;display:inline-flex;align-items:center;width:36px;height:20px;flex:none;'
           + 'background:var(--dsw-alias-border-l2);border:0;border-radius:999px;cursor:pointer;padding:0;transition:background .12s ease}'
@@ -628,49 +741,63 @@ window.__ModuleLoader__.load({
           + '.bex-btn:hover:enabled{background:var(--dsw-alias-bg-layer-2)}'
           + '.bex-btn:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}'
           + '.bex-btn:disabled{opacity:.55;cursor:default}'
-          + '.bex-section__heading{margin:0 0 4px;font-weight:500;color:var(--dsw-alias-label-primary);font-size:12px;line-height:16px;text-transform:uppercase;letter-spacing:.04em}'
+          + '.bex-section{display:grid;gap:8px}'
+          + '.bex-section__heading{margin:0;font-weight:500;color:var(--dsw-alias-label-primary);font-size:12px;line-height:16px;text-transform:uppercase;letter-spacing:.04em}'
           + '.bex-page__intro{margin:0;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}'
           + '.bex-feedback--ok{color:var(--dsw-alias-state-success-primary);font-size:11px}'
           + '.bex-feedback--warn{color:var(--dsw-alias-state-warn-primary);font-size:11px}'),
 
         h('p', { key: 'intro', className: 'bex-page__intro' }, t('sectionDescription')),
 
-        h('div', { key: 'section' }, [
+        /* Display: whether the collection's visible surfaces are on. */
+        h('div', { key: 'display', className: 'bex-section' }, [
+          h('h3', { key: 'heading', className: 'bex-section__heading' }, t('displayHeading')),
+          h(PreferenceRow, {
+            key: 'showQuota',
+            t,
+            label: t('showQuotaLabel'),
+            description: t('showQuotaDescription'),
+            status: showQuota ? t('showQuotaStatusOn') : t('showQuotaStatusOff'),
+            checked: showQuota,
+            disabled: false,
+            onChange: () => preferences.set('showQuota', !showQuota),
+          }),
+        ]),
+
+        /* Notifications: the runtime is the page's test action for now. */
+        h('div', { key: 'notifications', className: 'bex-section' }, [
           h('h3', { key: 'heading', className: 'bex-section__heading' }, t('notifyHeading')),
-          h('div', { key: 'row', className: 'bex-row', style: { marginTop: 8 } }, [
-            h('div', { key: 'body' }, [
-              h('p', { key: 'label', className: 'bex-row__label' }, t('notifyLabel')),
-              h('p', { key: 'desc', className: 'bex-row__description' }, t('notifyDescription')),
-              h('p', { key: 'status', className: 'bex-row__status' }, statusLine),
-              errorMessage === null ? null : h('p', { key: 'error', className: 'bex-row__error' }, errorMessage),
-              canSendTest ? h('div', { key: 'actions', className: 'bex-actions' }, [
-                h('button', {
-                  key: 'test',
-                  type: 'button',
-                  className: 'bex-btn',
-                  disabled: testState === 'sending',
-                  onClick: sendTest,
-                }, testState === 'sending' ? t('testSending') : t('testButton')),
-                testState === 'sent' ? h('span', {
-                  key: 'testFeedback',
-                  className: 'bex-feedback--ok',
-                }, t('testSent')) : null,
-                testState === 'blocked' ? h('span', {
-                  key: 'testFeedback',
-                  className: 'bex-feedback--warn',
-                }, t('testUnavailable')) : null,
-              ]) : null,
+          h(PreferenceRow, {
+            key: 'notify',
+            t,
+            label: t('notifyLabel'),
+            description: t('notifyDescription'),
+            status: notifyStatus,
+            checked: notifyEnabled,
+            disabled: capability === 'unsupported',
+            onChange: () => preferences.set('notifyOnCompletion', !notifyEnabled),
+          }, [
+            errorMessage === null ? null : h('p', {
+              key: 'error',
+              className: 'bex-row__error',
+            }, errorMessage),
+            capability === 'unsupported' ? null : h('div', { key: 'actions', className: 'bex-actions' }, [
+              h('button', {
+                key: 'test',
+                type: 'button',
+                className: 'bex-btn',
+                disabled: testState === 'sending',
+                onClick: sendTest,
+              }, testState === 'sending' ? t('testSending') : t('testButton')),
+              testState === 'sent' ? h('span', {
+                key: 'testOk',
+                className: 'bex-feedback--ok',
+              }, t('testSent')) : null,
+              testState === 'blocked' ? h('span', {
+                key: 'testWarn',
+                className: 'bex-feedback--warn',
+              }, t('testUnavailable')) : null,
             ]),
-            h('button', {
-              key: 'toggle',
-              type: 'button',
-              role: 'switch',
-              className: 'bex-toggle',
-              'aria-checked': enabled,
-              'aria-label': t('notifyLabel'),
-              disabled: capability === 'unsupported',
-              onClick: toggle,
-            }, h('span', { key: 'knob', className: 'bex-toggle__knob' })),
           ]),
         ]),
       ])
@@ -710,21 +837,35 @@ window.__ModuleLoader__.load({
            conversation switch, and the figures must not follow it down. */
         const store = createStore(t)
 
+        /* The preferences are shared by the dock (which reads `showQuota`) and
+           the settings page (which writes it), so both are the same object. */
+        const preferences = createPreferences()
+
+        /**
+         * The dock entry. Hiding the ring is a real off switch, not just a
+         * hidden element: with nothing mounted the shared store has no
+         * subscribers, so its timer stops and no quota requests are made.
+         */
+        function QuotaDockEntry({ t: translate, store: quotaStore, preferences: prefs }) {
+          const visible = usePreference(prefs, 'showQuota')
+          if (!visible) return null
+          return h(QuotaControl, { t: translate, store: quotaStore })
+        }
+
         ctx.slots.inject('conversation.composer.dock', () => ctx.slots.register({
           name: 'conversation.composer.dock',
           id: 'opencode-go-usage',
           order: 2,
           label: () => t('label'),
-        }, (props) => h(QuotaControl, { ...props, t, store })))
+        }, (props) => h(QuotaDockEntry, { ...props, t, store, preferences })))
 
-        /* The page is one component. The toggle's state lives in `localStorage`
-           and is mirrored in component state so a re-render on toggle doesn't
-           require a reload. The owner passes the section's `close` and the
-           documented standard props (which are hooks exposed in the owner's
-           React context, not direct props), so this component reads nothing
-           off the props argument and renders from its own state. A defensive
-           wrapper catches any render-time exception and shows it inline
-           instead of letting the slot entry crash to an empty page. */
+        /* The page is one component. Its values live in the shared preference
+           store, so a toggle here reaches the composer ring immediately. The
+           owner passes the section's `close` and the standard seat; this
+           component reads neither, because a root-scoped page must not call a
+           session-scoped standard hook (see the note on the component). A
+           defensive wrapper keeps any future render error visible inline
+           instead of letting the slot entry blank the page. */
         ctx.slots.inject('settings.section', () => ctx.slots.register({
           name: 'settings.section',
           id: 'better-experience',
@@ -732,7 +873,7 @@ window.__ModuleLoader__.load({
           label: () => bet('sectionTitle'),
         }, () => {
           try {
-            return h(BetterExperiencePage, { t: bet })
+            return h(BetterExperiencePage, { t: bet, preferences })
           } catch (error) {
             const message = error instanceof Error ? `${error.message}\n${error.stack ?? ''}` : String(error)
             /* Surface the error to the developer console (where it can be
