@@ -37,10 +37,16 @@ derives the shorter windows from it:
 | Week | 50% of the monthly limit | `weekly` |
 | Month | 100% of the monthly limit | `monthly` |
 
-The strip under the composer shows each window's **used share** as a percentage
-and a small bar; hovering one gives the exact reset instant and a countdown. It
-refreshes every 60 seconds, whenever the page becomes visible again, and on the
-`⟳` button.
+Under the composer it stays one compact control: the label `5h` (`小时` in the
+Chinese locale) next to a **single ring** filled to the rolling window's used
+share, with the percentage beside it. Opening that control shows the weekly and
+monthly windows as bars with their percentages and reset times, when the figures
+were last read, and a refresh action; the ring's tooltip carries the 5-hour
+window's reset time and countdown.
+
+**Nothing polls.** The figures are read once when the page loads and change only
+when you press **Refresh**, so the reported read time always says how current they
+are — opening the popup deliberately does not re-read them.
 
 `GET https://opencode.ai/zen/go/v1/usage` returns:
 
