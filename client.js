@@ -23,7 +23,7 @@ window.__ModuleLoader__.load({
   factory(require) {
     const React = require('react')
     const h = React.createElement
-    const { useCallback, useEffect, useMemo, useRef, useState } = React
+    const { useCallback, useEffect, useMemo, useState } = React
 
     /** Host-owned route, same origin as the page. */
     const ENDPOINT = '/plugin/opencode-go-usage/quota'
@@ -523,7 +523,8 @@ window.__ModuleLoader__.load({
     /**
      * Reduce the Notifications API to one of three states the page renders:
      * `unsupported` (no constructor at all), `denied` (permission refused or
-     * blocked), `granted` (notifications are allowed).
+     * blocked), `granted` (notifications are allowed), or `prompt` (no
+     * decision yet — the next user gesture will request it).
      */
     function notificationCapability() {
       const Ctor = globalThis.Notification
@@ -534,55 +535,45 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * The runtime, mounted on the settings page itself. The shell gives the page
-     * the `useSessionStatus` hook through the section's standard props; that hook
-     * tracks the active session and re-renders on every status change. The page
-     * also receives `useSessions` and `close` (the section's owner props) but
-     * only needs `useSessionStatus` here.
+     * The page itself. The shell provides one owner prop (`close`) to a
+     * `settings.section` registrant; the standard props documented on the
+     * slot are hooks the section's owner exposes inside its own React
+     * context, not props passed to this component. Trying to read them
+     * off `ownerProps` returned `undefined` and a previous revision
+     * of this file crashed on that — the page now reads no props from
+     * the owner at all. The runtime is also held for a later revision:
+     * v1 ships a working form and a "send a test notification" button,
+     * which is enough to confirm the permission grant and the API
+     * path on this machine.
      */
-    function BetterExperiencePage({ useSessionStatus, t, enabled, onEnabledChange, capability }) {
-      const status = useSessionStatus?.() ?? null
-      const running = Boolean(status?.running)
-      const sessionId = status?.sessionId ?? null
-      const previousRunning = useRef(false)
+    function BetterExperiencePage({ t }) {
+      const [enabled, setEnabled] = useState(readNotifyEnabled)
+      const capability = useMemo(notificationCapability, [enabled])
+      const onEnabledChange = useCallback((next) => {
+        writeNotifyEnabled(next)
+        setEnabled(next)
+      }, [])
       const [testState, setTestState] = useState('idle')
-
-      /* Fire on the running → idle transition of the active session. The
-         previous flag is local to one mount of the page, so opening the
-         settings panel and looking at the existing idle state never fires. */
-      useEffect(() => {
-        const wasRunning = previousRunning.current
-        previousRunning.current = running
-        if (!enabled || capability !== 'granted') return
-        if (wasRunning && !running && sessionId !== null) {
-          const Ctor = globalThis.Notification
-          if (Ctor === undefined) return
-          try {
-            new Ctor(t('notifTitle'), {
-              body: t('notifBody'),
-              tag: `dsh-plugins:${sessionId}`,
-              silent: false,
-            })
-          } catch {
-            /* Some browsers throw on construction when the user has revoked
-               permission between the capability check and the call; ignore. */
-          }
-        }
-      }, [running, sessionId, enabled, capability, t])
+      const [errorMessage, setErrorMessage] = useState(null)
 
       const toggle = useCallback(() => {
         onEnabledChange(!enabled)
       }, [enabled, onEnabledChange])
 
       const sendTest = useCallback(async () => {
+        setErrorMessage(null)
         const Ctor = globalThis.Notification
-        if (Ctor === undefined) return
+        if (Ctor === undefined) {
+          setTestState('blocked')
+          return
+        }
         let permission = Ctor.permission
         if (permission !== 'granted') {
           try {
             permission = await Ctor.requestPermission()
-          } catch {
+          } catch (error) {
             permission = 'denied'
+            setErrorMessage(error instanceof Error ? error.message : String(error))
           }
         }
         if (permission !== 'granted') {
@@ -596,17 +587,20 @@ window.__ModuleLoader__.load({
           })
           setTestState('sent')
           setTimeout(() => setTestState('idle'), 4000)
-        } catch {
+        } catch (error) {
           setTestState('blocked')
+          setErrorMessage(error instanceof Error ? error.message : String(error))
         }
       }, [t])
 
-      /* The status line below the toggle tells the user what will happen. */
+      /* The status line under the toggle tells the user what will happen. */
       const statusLine = (() => {
         if (capability === 'unsupported') return t('notifyStatusUnsupported')
         if (capability === 'denied') return t('notifyStatusBlocked')
         return enabled ? t('notifyStatusOn') : t('notifyStatusOff')
       })()
+
+      const canSendTest = capability !== 'unsupported'
 
       return h('div', { className: 'bex-page', style: { display: 'grid', gap: 16, padding: '16px 20px' } }, [
         h('style', { key: 'style' },
@@ -614,29 +608,35 @@ window.__ModuleLoader__.load({
           + 'background:var(--dsw-alias-border-l2);border:0;border-radius:999px;cursor:pointer;padding:0;transition:background .12s ease}'
           + '.bex-toggle[aria-checked="true"]{background:var(--dsw-alias-brand-primary)}'
           + '.bex-toggle:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}'
+          + '.bex-toggle:disabled{opacity:.55;cursor:default}'
           + '.bex-toggle__knob{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--dsw-alias-bg-overlay);transition:transform .12s ease}'
           + '.bex-toggle[aria-checked="true"] .bex-toggle__knob{transform:translateX(16px)}'
           + '.bex-row{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:start;padding:14px 16px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-alias-bg-layer-1)}'
           + '.bex-row__label{margin:0 0 4px;font-weight:500;color:var(--dsw-alias-label-primary);font-size:13px;line-height:18px}'
           + '.bex-row__description{margin:0;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}'
           + '.bex-row__status{margin:8px 0 0;color:var(--dsw-alias-label-secondary);font-size:11px;line-height:16px}'
+          + '.bex-row__error{margin:8px 0 0;color:var(--dsw-alias-state-error-primary);font-size:11px;line-height:16px}'
+          + '.bex-actions{margin:8px 0 0;display:flex;align-items:center;gap:8px}'
           + '.bex-btn{background:transparent;border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;line-height:18px;padding:4px 10px;border-radius:6px;cursor:pointer}'
           + '.bex-btn:hover:enabled{background:var(--dsw-alias-bg-layer-2)}'
           + '.bex-btn:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}'
           + '.bex-btn:disabled{opacity:.55;cursor:default}'
           + '.bex-section__heading{margin:0 0 4px;font-weight:500;color:var(--dsw-alias-label-primary);font-size:12px;line-height:16px;text-transform:uppercase;letter-spacing:.04em}'
-          + '.bex-page__intro{margin:0;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}'),
+          + '.bex-page__intro{margin:0;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}'
+          + '.bex-feedback--ok{color:var(--dsw-alias-state-success-primary);font-size:11px}'
+          + '.bex-feedback--warn{color:var(--dsw-alias-state-warn-primary);font-size:11px}'),
 
-        h('div', { key: 'intro' }, t('sectionDescription')),
+        h('p', { key: 'intro', className: 'bex-page__intro' }, t('sectionDescription')),
 
         h('div', { key: 'section' }, [
-          h('h3', { className: 'bex-section__heading', key: 'heading' }, t('notifyHeading')),
-          h('div', { className: 'bex-row', key: 'row', style: { marginTop: 8 } }, [
+          h('h3', { key: 'heading', className: 'bex-section__heading' }, t('notifyHeading')),
+          h('div', { key: 'row', className: 'bex-row', style: { marginTop: 8 } }, [
             h('div', { key: 'body' }, [
-              h('p', { className: 'bex-row__label', key: 'label' }, t('notifyLabel')),
-              h('p', { className: 'bex-row__description', key: 'desc' }, t('notifyDescription')),
-              h('p', { className: 'bex-row__status', key: 'status' }, statusLine),
-              capability === 'granted' ? h('div', { key: 'actions', style: { marginTop: 8, display: 'flex', gap: 8 } }, [
+              h('p', { key: 'label', className: 'bex-row__label' }, t('notifyLabel')),
+              h('p', { key: 'desc', className: 'bex-row__description' }, t('notifyDescription')),
+              h('p', { key: 'status', className: 'bex-row__status' }, statusLine),
+              errorMessage === null ? null : h('p', { key: 'error', className: 'bex-row__error' }, errorMessage),
+              canSendTest ? h('div', { key: 'actions', className: 'bex-actions' }, [
                 h('button', {
                   key: 'test',
                   type: 'button',
@@ -646,11 +646,11 @@ window.__ModuleLoader__.load({
                 }, testState === 'sending' ? t('testSending') : t('testButton')),
                 testState === 'sent' ? h('span', {
                   key: 'testFeedback',
-                  style: { color: 'var(--dsw-alias-state-success-primary)', fontSize: 11, alignSelf: 'center' },
+                  className: 'bex-feedback--ok',
                 }, t('testSent')) : null,
                 testState === 'blocked' ? h('span', {
                   key: 'testFeedback',
-                  style: { color: 'var(--dsw-alias-state-warn-primary)', fontSize: 11, alignSelf: 'center' },
+                  className: 'bex-feedback--warn',
                 }, t('testUnavailable')) : null,
               ]) : null,
             ]),
@@ -663,7 +663,7 @@ window.__ModuleLoader__.load({
               'aria-label': t('notifyLabel'),
               disabled: capability === 'unsupported',
               onClick: toggle,
-            }, h('span', { className: 'bex-toggle__knob', key: 'knob' })),
+            }, h('span', { key: 'knob', className: 'bex-toggle__knob' })),
           ]),
         ]),
       ])
@@ -712,28 +712,33 @@ window.__ModuleLoader__.load({
 
         /* The page is one component. The toggle's state lives in `localStorage`
            and is mirrored in component state so a re-render on toggle doesn't
-           require a reload. `useSessionStatus` is one of the section's
-           standard props; if the host's owner ever stops providing it, the
-           runtime simply stops firing rather than crashing. */
+           require a reload. The owner passes the section's `close` and the
+           documented standard props (which are hooks exposed in the owner's
+           React context, not direct props), so this component reads nothing
+           off the props argument and renders from its own state. A defensive
+           wrapper catches any render-time exception and shows it inline
+           instead of letting the slot entry crash to an empty page. */
         ctx.slots.inject('settings.section', () => ctx.slots.register({
           name: 'settings.section',
           id: 'better-experience',
           order: 12,
           label: () => bet('sectionTitle'),
-        }, (ownerProps) => {
-          const [enabled, setEnabled] = useState(readNotifyEnabled)
-          const capability = useMemo(notificationCapability, [enabled])
-          const onEnabledChange = useCallback((next) => {
-            writeNotifyEnabled(next)
-            setEnabled(next)
-          }, [])
-          return h(BetterExperiencePage, {
-            useSessionStatus: ownerProps.useSessionStatus,
-            t: bet,
-            enabled,
-            onEnabledChange,
-            capability,
-          })
+        }, () => {
+          try {
+            return h(BetterExperiencePage, { t: bet })
+          } catch (error) {
+            const message = error instanceof Error ? `${error.message}\n${error.stack ?? ''}` : String(error)
+            /* Surface the error to the developer console (where it can be
+               inspected) and to the page itself, so an empty page is
+               impossible even if the host or this bundle ever regresses. */
+            if (typeof console !== 'undefined') console.error('[dsh-plugins better-experience]', error)
+            return h('div', { className: 'bex-page', style: { padding: '16px 20px' } }, [
+              h('style', { key: 'style' },
+                '.bex-page__error{margin:0;color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:18px;white-space:pre-wrap}'
+              ),
+              h('pre', { key: 'message', className: 'bex-page__error' }, message),
+            ])
+          }
         }))
       },
     }
