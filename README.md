@@ -191,9 +191,17 @@ behind it. Both are exercised by the repository's offline checks (below).
 ### How the ring follows the model
 
 The dock entry reads the session's own `modelSelection` projection and matches
-`current.provider` against the providers each Host half declares
-(`opencode-go`, and `minimax-cn`/`minimax`). A model switch re-renders the
-entry with a new provider, so the ring changes with it.
+its provider against the providers each Host half declares (`opencode-go`, and
+`minimax-cn`/`minimax`). A model switch re-renders the entry with a new
+provider, so the ring changes with it.
+
+That projection is `{ lastUsed, next }`, each a `{ provider, model,
+reasoningEffort? }` or null: `next` is what the following request should use and
+`lastUsed` is what the last one did. The entry prefers `next` — the user's
+current choice — and falls back to `lastUsed` for a session whose next selection
+has not been written yet. (The composer's own model picker merges this
+projection with a catalog store of its own under a `current` key; that is its
+internal shape, not the projection's, and reading it here finds nothing.)
 
 Two properties make that safe rather than fragile:
 

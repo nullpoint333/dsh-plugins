@@ -1088,6 +1088,23 @@ window.__ModuleLoader__.load({
         })
 
         /**
+         * The provider the session's model selection names.
+         *
+         * The `modelSelection` projection is `{ lastUsed, next }`, each a
+         * `{ provider, model, reasoningEffort? }` or null: `next` is what the
+         * following request should use and `lastUsed` is what the last one did.
+         * Prefer `next`, since that is the user's current choice, and fall back
+         * to `lastUsed` for a session whose next selection has not been written
+         * yet. (The composer's model picker merges this projection with its own
+         * catalog store under a `current` key; that is its internal shape, not
+         * the projection's, and reading it here would find nothing.)
+         */
+        function selectedProvider(selection) {
+          const chosen = selection?.next ?? selection?.lastUsed
+          return typeof chosen?.provider === 'string' ? chosen.provider : undefined
+        }
+
+        /**
          * Which widgets to show. `auto` follows the session's own model, so the
          * one ring is always the quota the user is actually spending.
          *
@@ -1103,8 +1120,8 @@ window.__ModuleLoader__.load({
           if (source !== QUOTA_SOURCE_AUTO) {
             return bound.filter((entry) => entry.widget.id === source)
           }
-          const provider = selection?.current?.provider
-          if (typeof provider !== 'string') return []
+          const provider = selectedProvider(selection)
+          if (provider === undefined) return []
           return bound.filter((entry) => entry.widget.providers.includes(provider))
         }
 
