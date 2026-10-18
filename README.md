@@ -5,12 +5,18 @@ plugins, delivered as **one bundle**.
 
 | Plugin | What it does |
 | --- | --- |
-| [`opencode-go-usage`](plugins/opencode-go-usage) | Shows the OpenCode Go subscription's 5-hour, weekly and monthly quota below the composer |
-| [`minimax-quota`](plugins/minimax-quota) | Shows the MiniMax M Plan's 5-hour and weekly allowance below the composer |
-| [`better-experience`](plugins/better-experience) | The Settings page that holds this collection's global preferences — today, whether each quota ring is shown and whether a desktop notification fires when a task ends. |
+| [`opencode-go-usage`](plugins/opencode-go-usage) | Reads the OpenCode Go subscription's 5-hour, weekly and monthly quota |
+| [`minimax-quota`](plugins/minimax-quota) | Reads the MiniMax M Plan's 5-hour and weekly allowance |
+| [`better-experience`](plugins/better-experience) | The Settings page holding this collection's global preferences |
 
-Preferences are live: changing one on the **Better experience** page takes
-effect at once, with no reload.
+The two quota plugins no longer render their own widget. They are the two
+**Host halves and their copy**; the single ring below the composer is drawn by
+this collection's shared browser half, which **follows the session's model** —
+switch a session to MiniMax and the ring becomes the MiniMax allowance, with no
+reload. **Better experience → Display** pins it to one provider, shows both, or
+turns it off.
+
+Preferences are live: changing one takes effect at once, with no reload.
 
 ## Install
 
@@ -160,36 +166,58 @@ preference does not have to invent its own page.
 
 The page renders one section per concern, and each row is: a label, a
 description, a status line that states the **consequence** of the current
-value rather than the bit itself, and the switch.
+value rather than the bit itself, and one control — a switch or a `select`.
 
 | Preference | Key | Default | What it does |
 | --- | --- | --- | --- |
-| Show the OpenCode Go quota | `show-quota` | **on** | Shows the OpenCode Go ring below the composer. Turning it off is a real off switch, not a hidden element: with nothing mounted that widget's store has no subscribers, so its timer stops and no requests are made. |
-| Show the MiniMax plan usage | `show-minimax-quota` | **on** | The same, for the MiniMax M Plan ring. The two are independent. |
+| Quota shown below the composer | `quota-source` | `auto` | `auto` follows the session's model; the others pin the ring to OpenCode Go, pin it to MiniMax, show both, or show neither. |
 | Notify when a task completes | `notify-on-completion` | off | Sends a desktop notification when the model finishes a turn. |
 
 Keys live under `localStorage['dsh-plugins.better-experience.<name>']`, so a
 future plugin in this collection cannot collide with them. A value equal to
 its default is stored by **removing** the key, which lets a later release
-change a default without a migration.
+change a default without a migration. A stored value the preference does not
+accept — a stale key, or a hand-edited one — falls back to the default rather
+than putting the UI into an unknown state.
 
 The live values are not read from `localStorage` on every render: `storage`
 events do not fire in the tab that wrote them, so that would not wake a
 mounted view anyway. Instead one in-memory store is created per activation
 and shared by every subscriber — the settings page writes it, and the
-composer ring reads it. That is what makes the quota toggle take effect
+composer ring reads it. That is what makes a change take effect
 **immediately, with no reload**; `localStorage` is only the durable layer
 behind it. Both are exercised by the repository's offline checks (below).
+
+### How the ring follows the model
+
+The dock entry reads the session's own `modelSelection` projection and matches
+`current.provider` against the providers each Host half declares
+(`opencode-go`, and `minimax-cn`/`minimax`). A model switch re-renders the
+entry with a new provider, so the ring changes with it.
+
+Two properties make that safe rather than fragile:
+
+- `modelSelection` is a **session-scoped** projection and the dock entry is
+  session-scoped, so the scope matches. (Calling a session-scoped standard
+  hook from a *root*-scoped page is the mistake that once blanked the settings
+  page; see the rule in *Adding a plugin* below.)
+- The projection store defines a face for **every** key: an unknown or
+  not-yet-populated key is an `undefined` snapshot, never a throw. So an
+  unexpected provider leaves the dock empty instead of breaking the composer,
+  and a profile without the model-selection plugin degrades the same way.
+
+A provider this collection has no widget for (the official DeepSeek account,
+say) shows nothing, which is the honest answer rather than a stale figure.
 
 ### The notification row today
 
 The row, its persistence, and its availability handling work, and a **Send a
 test notification** action verifies the OS-level permission and the API path
 without waiting for a real task to end. Firing automatically on task
-completion is **not implemented yet**: it needs session state, and a
-`settings.section` page is root-scoped, so it cannot read a session-scoped
-hook. That runtime belongs in a session-scoped seat (the composer dock
-alongside the quota ring), sharing this same preference store.
+completion is **not implemented yet**: it needs session state, and the *page*
+is root-scoped so it cannot read a session-scoped hook. That runtime belongs
+in the session-scoped dock entry, which is where the quota widget lives and
+where the same preference store is already in reach.
 
 ## Offline checks
 
@@ -199,15 +227,17 @@ render-time failures that a browser only reports as a blank slot:
 
 ```
 node render-test.cjs   <client.js>                    # both entries render
-node interact-test.cjs <client.js>                    # toggles, no Notifications API
-node interact-test.cjs <client.js> --notifications    # toggles, permission granted
+node interact-test.cjs <client.js>                    # source resolution, no Notifications API
+node interact-test.cjs <client.js> --notifications    # source resolution, permission granted
 ```
 
-`interact-test.cjs` mounts both entries in a jsdom DOM and clicks the real
-toggles, so it covers the shared-store reactivity that static rendering
-cannot see. It also supplies the root standard seat with hooks that throw,
-which is how a stray session-hook call in a root-scoped page is caught
-before it blanks the page.
+`interact-test.cjs` mounts both entries in a jsdom DOM and drives the real
+controls, so it covers what static rendering cannot see: that the ring follows
+the model selection, that a provider with no widget shows nothing, that an
+absent projection shows nothing **without throwing**, that each `quota-source`
+value resolves to the right set of rings, and that the choice persists. It also
+supplies the root standard seat with hooks that throw, which is how a stray
+session-hook call in a root-scoped page is caught before it blanks the page.
 
 ## Repository layout
 

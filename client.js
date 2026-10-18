@@ -52,8 +52,9 @@ window.__ModuleLoader__.load({
         id: 'opencode-go-usage',
         ns: 'opencode-go-usage',
         endpoint: '/plugin/opencode-go-usage/quota',
-        order: 2,
-        preference: 'showQuota',
+        /* The provider ids this widget answers for, as the session's model
+           selection reports them (`llm-pi-ai` provider keys). */
+        providers: ['opencode-go'],
         windows: [
           { key: 'rolling', share: '20%' },
           { key: 'weekly', share: '50%' },
@@ -64,14 +65,18 @@ window.__ModuleLoader__.load({
         id: 'minimax-quota',
         ns: 'minimax-quota',
         endpoint: '/plugin/minimax-quota/quota',
-        order: 3,
-        preference: 'showMinimaxQuota',
+        providers: ['minimax-cn', 'minimax'],
         windows: [
           { key: 'interval' },
           { key: 'weekly' },
         ],
       },
     ]
+
+    /** The preference value that means "follow the session's model". */
+    const QUOTA_SOURCE_AUTO = 'auto'
+    const QUOTA_SOURCE_BOTH = 'both'
+    const QUOTA_SOURCE_OFF = 'off'
 
     /** Per-widget copy. A window's label is read from its own key. */
     const DICTS = {
@@ -164,29 +169,28 @@ window.__ModuleLoader__.load({
      */
     const PREFERENCES = [
       {
-        id: 'showQuota',
-        storageKey: 'dsh-plugins.better-experience.show-quota',
-        /** Showing the ring is the plugin's whole point, so it defaults on. */
-        default: true,
+        id: 'quotaSource',
+        storageKey: 'dsh-plugins.better-experience.quota-source',
+        kind: 'choice',
+        /* Following the model is the point of the unified widget, so it is the
+           default; every other value is an explicit override. */
+        default: QUOTA_SOURCE_AUTO,
+        options: [
+          { value: QUOTA_SOURCE_AUTO, labelKey: 'quotaSourceAuto' },
+          { value: 'opencode-go-usage', labelKey: 'quotaSourceOpencode' },
+          { value: 'minimax-quota', labelKey: 'quotaSourceMinimax' },
+          { value: QUOTA_SOURCE_BOTH, labelKey: 'quotaSourceBoth' },
+          { value: QUOTA_SOURCE_OFF, labelKey: 'quotaSourceOff' },
+        ],
         heading: 'displayHeading',
-        label: 'showQuotaLabel',
-        description: 'showQuotaDescription',
-        statusOn: 'showQuotaStatusOn',
-        statusOff: 'showQuotaStatusOff',
-      },
-      {
-        id: 'showMinimaxQuota',
-        storageKey: 'dsh-plugins.better-experience.show-minimax-quota',
-        default: true,
-        heading: 'displayHeading',
-        label: 'showMinimaxQuotaLabel',
-        description: 'showMinimaxQuotaDescription',
-        statusOn: 'showMinimaxQuotaStatusOn',
-        statusOff: 'showMinimaxQuotaStatusOff',
+        label: 'quotaSourceLabel',
+        description: 'quotaSourceDescription',
+        status: 'quotaSourceStatus',
       },
       {
         id: 'notifyOnCompletion',
         storageKey: 'dsh-plugins.better-experience.notify-on-completion',
+        kind: 'boolean',
         /** Desktop notifications need an explicit grant, so this defaults off. */
         default: false,
         heading: 'notifyHeading',
@@ -201,15 +205,17 @@ window.__ModuleLoader__.load({
       en: {
         sectionTitle: 'Better experience',
         sectionDescription: 'Global preferences shared by every plugin in this collection.',
+        dockLabel: 'Usage limits',
         displayHeading: 'Display',
-        showQuotaLabel: 'Show the OpenCode Go quota',
-        showQuotaDescription: 'Shows the rolling 5-hour window as a ring below the composer; opening it reveals the weekly and monthly windows. Turning this off also stops the quota requests, since nothing is left to display them.',
-        showQuotaStatusOn: 'On — the ring is shown below the composer.',
-        showQuotaStatusOff: 'Off — the ring is hidden and no quota requests are made.',
-        showMinimaxQuotaLabel: 'Show the MiniMax plan usage',
-        showMinimaxQuotaDescription: 'Shows the M Plan\u2019s 5-hour window as a second ring below the composer, with the weekly window in the popup. Turning this off also stops its quota requests.',
-        showMinimaxQuotaStatusOn: 'On — the MiniMax ring is shown below the composer.',
-        showMinimaxQuotaStatusOff: 'Off — the MiniMax ring is hidden and no quota requests are made.',
+        quotaSourceLabel: 'Quota shown below the composer',
+        quotaSourceDescription: 'One ring, following whichever provider the session\u2019s model uses: OpenCode Go or the MiniMax M Plan. Pin it to one provider, show both rings, or turn it off. A hidden widget is not mounted, so its requests stop too.',
+        quotaSourceAuto: 'Follow the current model',
+        quotaSourceOpencode: 'Always OpenCode Go',
+        quotaSourceMinimax: 'Always MiniMax',
+        quotaSourceBoth: 'Show both',
+        quotaSourceOff: 'Do not show',
+        quotaSourceStatus: 'Now: {value}.',
+        quotaSourceStatusAuto: 'Now: following the current model.',
         notifyHeading: 'Notifications',
         notifyLabel: 'Notify when a task completes',
         notifyDescription: 'Send a desktop notification when the model finishes a turn. The browser must grant the notification permission; once granted, the runtime is active while this settings page is open.',
@@ -227,15 +233,17 @@ window.__ModuleLoader__.load({
       zh: {
         sectionTitle: '更好的体验',
         sectionDescription: '本插件集合中所有插件共享的全局偏好。',
+        dockLabel: '额度',
         displayHeading: '显示',
-        showQuotaLabel: '显示 OpenCode Go 额度',
-        showQuotaDescription: '在输入框下方以圆环显示 5 小时滚动窗口，点击可展开周、月额度。关闭后同时也停止额度请求——因为已经没有需要展示的地方。',
-        showQuotaStatusOn: '已开启 — 输入框下方显示额度圆环。',
-        showQuotaStatusOff: '已关闭 — 不显示额度圆环，也不会请求额度数据。',
-        showMinimaxQuotaLabel: '显示 MiniMax 套餐额度',
-        showMinimaxQuotaDescription: '在输入框下方以第二个圆环显示 M Plan 的 5 小时窗口，点击可展开周额度。关闭后同样会停止它的额度请求。',
-        showMinimaxQuotaStatusOn: '已开启 — 输入框下方显示 MiniMax 圆环。',
-        showMinimaxQuotaStatusOff: '已关闭 — 不显示 MiniMax 圆环，也不会请求额度数据。',
+        quotaSourceLabel: '输入框下方显示的额度',
+        quotaSourceDescription: '只保留一个圆环，自动跟随当前会话所用模型的服务商：OpenCode Go 或 MiniMax M Plan。也可以固定到其中一个、两个都显示，或直接关闭。隐藏的组件不会被挂载，因此它的额度请求也会停止。',
+        quotaSourceAuto: '跟随当前模型',
+        quotaSourceOpencode: '固定 OpenCode Go',
+        quotaSourceMinimax: '固定 MiniMax',
+        quotaSourceBoth: '两个都显示',
+        quotaSourceOff: '不显示',
+        quotaSourceStatus: '当前：{value}。',
+        quotaSourceStatusAuto: '当前：跟随当前模型。',
         notifyHeading: '通知',
         notifyLabel: '任务完成时发送通知',
         notifyDescription: '在模型完成一轮时发送桌面通知。浏览器需要授予通知权限；授予后，只要设置页保持打开，运行时就会持续生效。',
@@ -713,11 +721,22 @@ window.__ModuleLoader__.load({
       const values = {}
       const listeners = new Set()
 
+      /**
+       * Read one preference from `localStorage`, trusting it only if it is a
+       * value the preference actually accepts. A stale or hand-edited key falls
+       * back to the default rather than putting the UI into an unknown state.
+       */
       const read = (preference) => {
         try {
           const stored = globalThis.localStorage?.getItem(preference.storageKey)
-          if (stored === 'true') return true
-          if (stored === 'false') return false
+          if (stored !== null && stored !== undefined) {
+            if (preference.kind === 'boolean') {
+              if (stored === 'true') return true
+              if (stored === 'false') return false
+            } else if (preference.options.some((option) => option.value === stored)) {
+              return stored
+            }
+          }
         } catch {
           /* Fall through to the default. */
         }
@@ -731,7 +750,7 @@ window.__ModuleLoader__.load({
       }
 
       return {
-        get: (id) => values[id] === true,
+        get: (id) => values[id],
         set: (id, next) => {
           if (values[id] === next) return
           values[id] = next
@@ -789,10 +808,11 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * One preference row: label, description, the line that states the
-     * current consequence, an optional extra block, and the switch.
+     * One preference row: label, description, the line that states the current
+     * consequence, and one control on the right — either the switch or, with
+     * `control`, whatever the caller supplies.
      */
-    function PreferenceRow({ t, label, description, status, checked, disabled, onChange, children }) {
+    function PreferenceRow({ t, label, description, status, checked, disabled, onChange, control, children }) {
       return h('div', { className: 'bex-row' }, [
         h('div', { key: 'body' }, [
           h('p', { key: 'label', className: 'bex-row__label' }, label),
@@ -800,7 +820,7 @@ window.__ModuleLoader__.load({
           h('p', { key: 'status', className: 'bex-row__status' }, status),
           children ?? null,
         ]),
-        h('button', {
+        control ?? h('button', {
           key: 'toggle',
           type: 'button',
           role: 'switch',
@@ -811,6 +831,21 @@ window.__ModuleLoader__.load({
           onClick: onChange,
         }, h('span', { key: 'knob', className: 'bex-toggle__knob' })),
       ])
+    }
+
+    /**
+     * The choice control. A native `select` on purpose: it is keyboard- and
+     * screen-reader-correct for free, and the theme supplies its surface through
+     * the same tokens as everything else.
+     */
+    function PreferenceChoice({ label, value, options, onChange }) {
+      return h('select', {
+        className: 'bex-select',
+        'aria-label': label,
+        value,
+        onChange: (event) => onChange(event.target.value),
+      }, options.map((option) =>
+        h('option', { key: option.value, value: option.value }, option.label)))
     }
 
     /**
@@ -901,6 +936,10 @@ window.__ModuleLoader__.load({
           + '.bex-btn:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}'
           + '.bex-btn:disabled{opacity:.55;cursor:default}'
           + '.bex-section{display:grid;gap:8px}'
+          + '.bex-select{box-sizing:border-box;max-width:220px;min-width:0;padding:4px 8px;border-radius:6px;font:inherit;font-size:12px;line-height:18px;'
+          + 'color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);cursor:pointer}'
+          + '.bex-select:hover{background:var(--dsw-alias-bg-overlay)}'
+          + '.bex-select:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}'
           + '.bex-section__heading{margin:0;font-weight:500;color:var(--dsw-alias-label-primary);font-size:12px;line-height:16px;text-transform:uppercase;letter-spacing:.04em}'
           + '.bex-page__intro{margin:0;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}'
           + '.bex-feedback--ok{color:var(--dsw-alias-state-success-primary);font-size:11px}'
@@ -908,24 +947,44 @@ window.__ModuleLoader__.load({
 
         h('p', { key: 'intro', className: 'bex-page__intro' }, t('sectionDescription')),
 
-        /* Display: whether the collection's visible surfaces are on. Every
-           preference whose heading is `displayHeading` renders here, so adding
-           another display toggle is a PREFERENCES entry plus its copy. */
+        /* Display: which quota the widget below the composer shows. Both kinds
+           of control render from the PREFERENCES table. */
         h('div', { key: 'display', className: 'bex-section' }, [
           h('h3', { key: 'heading', className: 'bex-section__heading' }, t('displayHeading')),
           ...PREFERENCES
             .filter((preference) => preference.heading === 'displayHeading')
             .map((preference) => {
-              const on = preferences.get(preference.id)
+              const current = preferences.get(preference.id)
+              const label = t(preference.label)
+              if (preference.kind === 'choice') {
+                const chosen = preference.options.find((option) => option.value === current)
+                return h(PreferenceRow, {
+                  key: preference.id,
+                  t,
+                  label,
+                  description: t(preference.description),
+                  status: fill(t(preference.status), { value: t(chosen?.labelKey ?? '') }),
+                  control: h(PreferenceChoice, {
+                    key: 'control',
+                    label,
+                    value: current,
+                    options: preference.options.map((option) => ({
+                      value: option.value,
+                      label: t(option.labelKey),
+                    })),
+                    onChange: (next) => preferences.set(preference.id, next),
+                  }),
+                })
+              }
               return h(PreferenceRow, {
                 key: preference.id,
                 t,
-                label: t(preference.label),
+                label,
                 description: t(preference.description),
-                status: on ? t(preference.statusOn) : t(preference.statusOff),
-                checked: on,
+                status: current === true ? t(preference.statusOn) : t(preference.statusOff),
+                checked: current === true,
                 disabled: false,
-                onChange: () => preferences.set(preference.id, !on),
+                onChange: () => preferences.set(preference.id, current !== true),
               })
             }),
         ]),
@@ -1012,41 +1071,70 @@ window.__ModuleLoader__.load({
            the settings page (which writes them), so both are the same object. */
         const preferences = createPreferences()
 
-        /**
-         * One composer-dock entry per quota widget. Hiding a ring is a real off
-         * switch, not a hidden element: with nothing mounted that widget's store
-         * has no subscribers, so its timer stops and no requests are made.
-         */
-        function makeDockEntry({ t, store, widget }) {
-          return function QuotaDockEntry(props) {
-            const visible = usePreference(preferences, widget.preference)
-            if (!visible) return null
-            return h(QuotaControl, {
-              ...props,
-              t,
-              store,
-              widgetId: widget.id,
-              windows: widget.windows,
-              boostLabel: widget.boostLabel,
-            })
+        /* One store per widget for the whole activation: a control unmounts on
+           every conversation switch, and the figures must not follow it down.
+           A widget nobody is displaying simply has no subscribers, so its timer
+           stops and it makes no requests. */
+        const bound = QUOTA_WIDGETS.map((widget) => {
+          const t = translatorFor(widget.ns)
+          return {
+            widget,
+            t,
+            store: createStore({ endpoint: widget.endpoint, translate: t }),
+            boostLabel: widget.ns === 'minimax-quota'
+              ? (factor) => fill(t('boost'), { factor })
+              : undefined,
           }
+        })
+
+        /**
+         * Which widgets to show. `auto` follows the session's own model, so the
+         * one ring is always the quota the user is actually spending.
+         *
+         * `useProjection('modelSelection')` is a session-scoped standard hook,
+         * and this entry is session-scoped, so the scope matches. Its store
+         * always defines a face per key — an unknown or not-yet-populated key is
+         * an `undefined` snapshot, never a throw — so an unexpected provider
+         * leaves the dock empty instead of breaking the composer.
+         */
+        function resolveWidgets(source, selection) {
+          if (source === QUOTA_SOURCE_OFF) return []
+          if (source === QUOTA_SOURCE_BOTH) return bound
+          if (source !== QUOTA_SOURCE_AUTO) {
+            return bound.filter((entry) => entry.widget.id === source)
+          }
+          const provider = selection?.current?.provider
+          if (typeof provider !== 'string') return []
+          return bound.filter((entry) => entry.widget.providers.includes(provider))
         }
 
-        for (const widget of QUOTA_WIDGETS) {
-          const t = translatorFor(widget.ns)
-          /* One store per widget for the whole activation: a control unmounts on
-             every conversation switch, and the figures must not follow it down. */
-          const store = createStore({ endpoint: widget.endpoint, translate: t })
-          const boostLabel = widget.ns === 'minimax-quota'
-            ? (factor) => fill(t('boost'), { factor })
-            : undefined
-          ctx.slots.inject('conversation.composer.dock', () => ctx.slots.register({
-            name: 'conversation.composer.dock',
-            id: widget.id,
-            order: widget.order,
-            label: () => t('label'),
-          }, makeDockEntry({ t, store, widget: { ...widget, boostLabel } })))
+        function QuotaDockEntry(props) {
+          const source = usePreference(preferences, 'quotaSource')
+          /* Reading the projection here is what makes the widget follow the
+             model: a model switch re-renders this entry with a new provider. */
+          const selection = props.useProjection?.('modelSelection')
+          const shown = resolveWidgets(source, selection)
+          if (shown.length === 0) return null
+          return h('div', { style: { display: 'inline-flex', alignItems: 'center' } },
+            shown.map((entry) => h(QuotaControl, {
+              ...props,
+              key: entry.widget.id,
+              t: entry.t,
+              store: entry.store,
+              widgetId: entry.widget.id,
+              windows: entry.widget.windows,
+              boostLabel: entry.boostLabel,
+            })))
         }
+
+        ctx.slots.inject('conversation.composer.dock', () => ctx.slots.register({
+          name: 'conversation.composer.dock',
+          id: 'quota',
+          order: 2,
+          /* One entry now covers both providers, so its label cannot be either
+             provider's; it names what the entry is. */
+          label: () => bet('dockLabel'),
+        }, QuotaDockEntry))
 
         /* The page is one component. Its values live in the shared preference
            store, so a toggle here reaches the composer rings immediately. The
