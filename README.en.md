@@ -285,7 +285,7 @@ value rather than the bit itself, and one control — a switch or a `select`.
 | Preference | Key | Default | What it does |
 | --- | --- | --- | --- |
 | Show the usage limits | `show-quota` | **on** | Shows the control below the composer: a ring that follows the session's model, and a popup listing both plans. Turning it off unmounts the control, so no requests are made. |
-| Notify when a task completes | `notify-on-completion` | off | Sends a desktop notification when the model finishes a turn. |
+| Notify when a task completes | `notify-on-completion` | off | Sends a desktop notification when the conversation on screen finishes a turn. |
 
 Keys live under `localStorage['dsh-plugins.better-experience.<name>']`, so a
 future plugin in this collection cannot collide with them. A value equal to
@@ -356,15 +356,22 @@ Two properties make that safe rather than fragile:
 A provider this collection has no widget for (the official DeepSeek account,
 say) shows nothing, which is the honest answer rather than a stale figure.
 
-### The notification row today
+### The notification row
 
 The row, its persistence, and its availability handling work, and a **Send a
 test notification** action verifies the OS-level permission and the API path
-without waiting for a real task to end. Firing automatically on task
-completion is **not implemented yet**: it needs session state, and the *page*
-is root-scoped so it cannot read a session-scoped hook. That runtime belongs
-in the session-scoped dock entry, which is where the quota widget lives and
-where the same preference store is already in reach.
+without waiting for a real task to end. Firing automatically is
+**implemented**: the runtime is a session-scoped dock entry
+(`completion-notify`) that renders nothing and exists only to keep its effect
+alive. It reads the conversation's `running` flag through `useSession` and
+notifies on the `true → false` transition. It lives in the dock rather than on
+the page because the page is root-scoped and cannot read a session-scoped hook.
+
+One prompt is one turn — from submission until the driver goes quiescent — so
+one turn is one notification. Switching to another application does not matter,
+since a background tab keeps running; switching the conversation *away* does,
+because that dock entry is unmounted and the turn that finishes in it is never
+witnessed.
 
 ## Offline checks
 

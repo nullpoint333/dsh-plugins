@@ -26,7 +26,7 @@ window.__ModuleLoader__.load({
   factory(require) {
     const React = require('react')
     const h = React.createElement
-    const { useCallback, useEffect, useMemo, useRef, useState } = React
+    const { useCallback, useEffect, useRef, useState } = React
 
     /** Used until the Host reports its own interval. */
     const DEFAULT_UI_REFRESH_MS = 5 * 60_000
@@ -186,11 +186,12 @@ window.__ModuleLoader__.load({
         notCoveredHint: 'This model is not on a plan this widget can read; open for details.',
         notifyHeading: 'Notifications',
         notifyLabel: 'Notify when a task completes',
-        notifyDescription: 'Send a desktop notification when the model finishes a turn. The browser must grant the notification permission; once granted, the runtime is active while this settings page is open.',
+        notifyDescription: 'Send a desktop notification when the conversation on screen finishes a turn. The browser must grant the notification permission first (turning this on asks for it); afterwards the runtime follows the conversation, so this page does not need to stay open.',
         notifyStatusOn: 'On — notifications fire when a task ends.',
         notifyStatusOff: 'Off — the runtime is inactive.',
         notifyStatusUnsupported: 'This browser does not expose the Notifications API; the toggle is visible but cannot fire.',
         notifyStatusBlocked: 'Notifications are blocked by the browser. Allow them in the page\u2019s site settings, then re-open this page.',
+        notifyStatusNeedsPermission: 'On, but the browser has not granted notifications yet \u2014 press the test button to ask again.',
         testButton: 'Send a test notification',
         testSending: 'Sending…',
         testSent: 'Test notification sent. If you did not see it, check the OS notification center.',
@@ -221,11 +222,12 @@ window.__ModuleLoader__.load({
         notCoveredHint: '当前模型不在本组件可读的套餐中；打开可查看两个套餐。',
         notifyHeading: '通知',
         notifyLabel: '任务完成时发送通知',
-        notifyDescription: '在模型完成一轮时发送桌面通知。浏览器需要授予通知权限；授予后，只要设置页保持打开，运行时就会持续生效。',
+        notifyDescription: '当屏幕上打开的会话完成一轮时发送桌面通知。需要先由浏览器授予通知权限（打开本开关时会申请）；之后运行时跟随会话生效，无需保持本页面打开。',
         notifyStatusOn: '已开启 — 任务结束时发送通知。',
         notifyStatusOff: '已关闭 — 运行时不会发送通知。',
         notifyStatusUnsupported: '当前浏览器未提供通知接口；开关可见但无法触发。',
         notifyStatusBlocked: '通知已被浏览器屏蔽。请在站点的通知设置中放行后，重新打开本页面。',
+        notifyStatusNeedsPermission: '已开启，但浏览器尚未授予通知权限 — 可点击测试按钮再次申请。',
         testButton: '发送测试通知',
         testSending: '发送中…',
         testSent: '已发送测试通知。如果未看到，请检查系统通知中心。',
@@ -852,16 +854,26 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * Reduce the Notifications API to one of three states the page renders:
-     * `unsupported` (no constructor at all), `denied` (permission refused or
-     * blocked), `granted` (notifications are allowed), or `prompt` (no
-     * decision yet — the next user gesture will request it).
+     * The Notifications API's own state, or `unsupported` when the browser has
+     * no constructor at all. Kept separate from the rendering states below
+     * because a permission answer arrives asynchronously and has to be read back
+     * after the request settles.
      */
-    function notificationCapability() {
+    function rawPermission() {
       const Ctor = globalThis.Notification
-      if (Ctor === undefined) return 'unsupported'
-      if (Ctor.permission === 'granted') return 'granted'
-      if (Ctor.permission === 'denied') return 'denied'
+      return Ctor === undefined ? 'unsupported' : Ctor.permission
+    }
+
+    /**
+     * Reduce a raw permission to one of the states this page renders:
+     * `unsupported` (no constructor at all), `denied` (permission refused or
+     * blocked), `granted` (notifications are allowed), or `prompt` (no decision
+     * yet — the next user gesture will request it).
+     */
+    function capabilityOf(permission) {
+      if (permission === 'unsupported') return 'unsupported'
+      if (permission === 'granted') return 'granted'
+      if (permission === 'denied') return 'denied'
       return 'prompt'
     }
 
@@ -930,9 +942,42 @@ window.__ModuleLoader__.load({
          display rows then read their own values through `preferences.get`,
          which is also why adding a preference needs no hook of its own. */
       const notifyEnabled = usePreference(preferences, 'notifyOnCompletion')
-      const capability = useMemo(notificationCapability, [notifyEnabled])
+      /* Permission is copied into state because a grant arrives asynchronously
+         and the Notifications API publishes no event to subscribe to: the
+         capability line and the switch have to follow the answer themselves. */
+      const [permission, setPermission] = useState(rawPermission)
       const [testState, setTestState] = useState('idle')
       const [errorMessage, setErrorMessage] = useState(null)
+      const capability = capabilityOf(permission)
+
+      /**
+       * Ask for the grant while a gesture is still on the stack.
+       *
+       * A permission request is honoured only from user activation, so the two
+       * places the user asks for notifications — arming the switch and pressing
+       * the test button — are the only chances to get one. The switch takes its
+       * chance at the click, which is what lets "turn it on" be the whole setup.
+       */
+      const ensurePermission = useCallback(async () => {
+        const Ctor = globalThis.Notification
+        if (Ctor === undefined) return 'unsupported'
+        if (Ctor.permission !== 'default') return Ctor.permission
+        try {
+          return await Ctor.requestPermission()
+        } catch (error) {
+          setErrorMessage(error instanceof Error ? error.message : String(error))
+          return 'denied'
+        } finally {
+          /* Only the settled permission is authoritative, so read it back. */
+          setPermission(rawPermission())
+        }
+      }, [])
+
+      const toggleNotify = useCallback(() => {
+        const next = notifyEnabled !== true
+        preferences.set('notifyOnCompletion', next)
+        if (next) void ensurePermission()
+      }, [notifyEnabled, preferences, ensurePermission])
 
       const sendTest = useCallback(async () => {
         setErrorMessage(null)
@@ -941,16 +986,7 @@ window.__ModuleLoader__.load({
           setTestState('blocked')
           return
         }
-        let permission = Ctor.permission
-        if (permission !== 'granted') {
-          try {
-            permission = await Ctor.requestPermission()
-          } catch (error) {
-            permission = 'denied'
-            setErrorMessage(error instanceof Error ? error.message : String(error))
-          }
-        }
-        if (permission !== 'granted') {
+        if (await ensurePermission() !== 'granted') {
           setTestState('blocked')
           return
         }
@@ -965,13 +1001,17 @@ window.__ModuleLoader__.load({
           setTestState('blocked')
           setErrorMessage(error instanceof Error ? error.message : String(error))
         }
-      }, [t])
+      }, [t, ensurePermission])
 
-      /* The status line under a toggle states the consequence, not the bit. */
+      /* The status line under a toggle states the consequence, not the bit. A
+         switch that is on without the grant is the one case worth spelling out,
+         because the runtime is otherwise silently inert. */
       const notifyStatus = (() => {
         if (capability === 'unsupported') return t('notifyStatusUnsupported')
         if (capability === 'denied') return t('notifyStatusBlocked')
-        return notifyEnabled ? t('notifyStatusOn') : t('notifyStatusOff')
+        if (notifyEnabled !== true) return t('notifyStatusOff')
+        if (capability !== 'granted') return t('notifyStatusNeedsPermission')
+        return t('notifyStatusOn')
       })()
 
       return h('div', { className: 'bex-page', style: { display: 'grid', gap: 20, padding: '16px 20px' } }, [
@@ -1047,7 +1087,9 @@ window.__ModuleLoader__.load({
             }),
         ]),
 
-        /* Notifications: the runtime is the page's test action for now. */
+        /* Notifications: this page owns the switch and the grant; the runtime
+           that acts on it is the dock entry registered below, because a
+           root-scoped page cannot read session state. */
         h('div', { key: 'notifications', className: 'bex-section' }, [
           h('h3', { key: 'heading', className: 'bex-section__heading' }, t('notifyHeading')),
           h(PreferenceRow, {
@@ -1058,7 +1100,7 @@ window.__ModuleLoader__.load({
             status: notifyStatus,
             checked: notifyEnabled,
             disabled: capability === 'unsupported',
-            onChange: () => preferences.set('notifyOnCompletion', !notifyEnabled),
+            onChange: toggleNotify,
           }, [
             errorMessage === null ? null : h('p', {
               key: 'error',
@@ -1201,6 +1243,55 @@ window.__ModuleLoader__.load({
              provider's; it names what the entry is. */
           label: () => bet('dockLabel'),
         }, QuotaDockEntry))
+
+        /**
+         * The completion notifier: a session-scoped dock entry that renders
+         * nothing and exists only for its effect.
+         *
+         * It cannot live on the settings page, which is root-scoped and has no
+         * source for a session-scoped hook (see the note on that component).
+         * `useSession` is the scope-matched hook for the conversation on screen,
+         * and its `running` flag is the turn-liveness signal: it turns false once
+         * no driver remains scheduled, which is the moment worth announcing. One
+         * prompt — however many steps and tool calls it takes — is one turn, so
+         * it is one notification.
+         *
+         * One entry is mounted per displayed conversation. A turn that finishes
+         * while the user is in another application still notifies, because a
+         * background tab keeps running; a turn in a conversation the user has
+         * switched *away* from is not tracked, because that entry is unmounted.
+         */
+        function CompletionNotifier(props) {
+          const enabled = usePreference(preferences, 'notifyOnCompletion')
+          const running = props.useSession?.((snapshot) => snapshot.running) === true
+          /* Seeded from the first render, so neither mounting into an idle
+             conversation nor remounting into a running one announces itself:
+             only a transition this component actually witnessed fires. */
+          const wasRunning = useRef(running)
+          useEffect(() => {
+            const previous = wasRunning.current
+            wasRunning.current = running
+            if (previous !== true || running || enabled !== true) return
+            const Ctor = globalThis.Notification
+            if (Ctor === undefined || Ctor.permission !== 'granted') return
+            try {
+              new Ctor(bet('notifTitle'), { body: bet('notifBody') })
+            } catch {
+              /* A notification the platform refuses must never disturb a turn. */
+            }
+          }, [running, enabled])
+          return null
+        }
+
+        /* An entry rather than a control: it occupies no space and carries no
+           label, because its whole purpose is to hold the effect while its
+           conversation is on screen. Same slot as the ring, so it is mounted
+           exactly when a conversation is being composed. */
+        ctx.slots.inject('conversation.composer.dock', () => ctx.slots.register({
+          name: 'conversation.composer.dock',
+          id: 'completion-notify',
+          order: 3,
+        }, CompletionNotifier))
 
         /* The page is one component. Its values live in the shared preference
            store, so a toggle here reaches the composer rings immediately. The
