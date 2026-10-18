@@ -123,6 +123,22 @@ live slot registration. So:
   address a subdirectory, so those packages reach users through a registry or a
   local path instead.
 
+### Switching between a working copy and the published package
+
+A local-path install (`link:`) runs this directory, so edits take effect at once;
+a `github:` install runs a downloaded copy. On Windows the switch back is not
+symmetric — `remove_bundle` reports `applied` but pnpm leaves the
+`node_modules/<name>` symlink behind, and the next install then fails with:
+
+```
+[ERR_PNPM_EPERM] [importPackage ...\node_modules\dsh-opencode-go-usage]
+EPERM: operation not permitted, rename '..._tmp_<pid>_<n>' -> '...\dsh-opencode-go-usage'
+```
+
+Delete that leftover symlink before installing the published package, and let the
+manager recreate the link when you switch back. A machine that never had a local
+install is unaffected: there is no entry for the rename to collide with.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
