@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "MiniMax 套餐额度",
+    "description": "在输入框下方显示 MiniMax M Plan 的 5 小时与周额度，包含每个窗口已用比例与重置时间。"
+  }
+}

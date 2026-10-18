@@ -6,7 +6,8 @@ plugins, delivered as **one bundle**.
 | Plugin | What it does |
 | --- | --- |
 | [`opencode-go-usage`](plugins/opencode-go-usage) | Shows the OpenCode Go subscription's 5-hour, weekly and monthly quota below the composer |
-| [`better-experience`](plugins/better-experience) | The Settings page that holds this collection's global preferences — today, whether the quota ring is shown and whether a desktop notification fires when a task ends. |
+| [`minimax-quota`](plugins/minimax-quota) | Shows the MiniMax M Plan's 5-hour and weekly allowance below the composer |
+| [`better-experience`](plugins/better-experience) | The Settings page that holds this collection's global preferences — today, whether each quota ring is shown and whether a desktop notification fires when a task ends. |
 
 Preferences are live: changing one on the **Better experience** page takes
 effect at once, with no reload.
@@ -86,6 +87,71 @@ profile's own `cordis.patch.yml`:
     uiRefreshMs: 300000
 ```
 
+### `minimax-quota`
+
+MiniMax's M Plan is also a subscription with two independently refreshing
+windows, and the same allowance is shared by every tool that uses the key:
+
+| Window | Covers | Length |
+| --- | --- | --- |
+| 5 hours | non-video models (text, image, audio) | 5 hours from first use |
+| Week | every model, video included | 7 days from first use |
+
+A non-video model needs **both** windows to have something left, so a spent
+5-hour window stops work even while the week is nearly untouched — which is
+exactly what makes a two-window display worth having.
+
+MiniMax documents the figures in its console and in its own CLI (`mmx quota`).
+This plugin reads the same route that CLI uses:
+
+```
+GET https://api.minimax.cn/v1/token_plan/remains
+Authorization: Bearer <M Plan subscription key>
+
+{ "model_remains": [ { "model_name": "general",
+    "start_time": …, "end_time": …, "remains_time": …,
+    "current_interval_remaining_percent": 0,
+    "weekly_start_time": …, "weekly_end_time": …,
+    "current_weekly_remaining_percent": 86, "weekly_boost_permille": 1500 } ],
+  "base_resp": { "status_code": 0, "status_msg": "success" } }
+```
+
+Two details of that payload are worth naming, because both are easy to get
+backwards:
+
+- **The percentages are what is LEFT, not what is used.** The Host half
+  converts them, so every widget in this collection draws the same thing (the
+  share spent), and the MiniMax popup prints both readings rather than picking
+  one.
+- **The count field is named `*_usage_count` but is treated as REMAINING.**
+  MiniMax's own CLI reads it that way and flips to `total - count` only when
+  `*_remaining_percent` disproves that reading by the smaller margin. The Host
+  half mirrors that, and where the two readings disagree with the reported
+  percentage by more than one point the reported percentage wins rather than a
+  guess.
+
+The route needs the **subscription** key (`sk-…`). A pay-as-you-go key starts
+with `sk-api-`, belongs to a different endpoint, and is metered against the
+account balance instead; the plugin detects that and says so rather than
+reporting an empty allowance. The key never reaches the browser: the Host half
+owns the call and republishes only the projected shares and reset instants over
+`/plugin/minimax-quota/quota`.
+
+Configuration (optional; every field has a default):
+
+```yaml
+- id: minimax-quota
+  config:
+    # The international base is 'https://api.minimax.io'; both serve this route.
+    endpoint: 'https://api.minimax.cn'
+    credentialRef: 'MINIMAX_CN_API_KEY'
+    # The plan entry carrying the text/image/audio allowance.
+    modelName: 'general'
+    cacheMs: 5000
+    requestTimeoutMs: 15000
+    uiRefreshMs: 300000
+```
+
 ### `better-experience`
 
 This plugin owns the **Better experience** Settings page — a place for the
@@ -98,7 +164,8 @@ value rather than the bit itself, and the switch.
 
 | Preference | Key | Default | What it does |
 | --- | --- | --- | --- |
-| Show the OpenCode Go quota | `show-quota` | **on** | Shows the ring below the composer. Turning it off is a real off switch, not a hidden element: with nothing mounted the quota store has no subscribers, so its timer stops and no requests are made. |
+| Show the OpenCode Go quota | `show-quota` | **on** | Shows the OpenCode Go ring below the composer. Turning it off is a real off switch, not a hidden element: with nothing mounted that widget's store has no subscribers, so its timer stops and no requests are made. |
+| Show the MiniMax plan usage | `show-minimax-quota` | **on** | The same, for the MiniMax M Plan ring. The two are independent. |
 | Notify when a task completes | `notify-on-completion` | off | Sends a desktop notification when the model finishes a turn. |
 
 Keys live under `localStorage['dsh-plugins.better-experience.<name>']`, so a
@@ -160,6 +227,10 @@ plugins/
     index.js                      Host half: upstream call + loopback route
     locale/{en,zh}.json           this plugin's own row in the Plugins page
     icon.svg
+  minimax-quota/
+    index.js                      Host half: plan call + loopback route
+    locale/{en,zh}.json           this plugin's own row in the Plugins page
+    icon.svg
   better-experience/
     index.js                      Host half: empty (the page is browser-only)
     locale/{en,zh}.json           this plugin's own row in the Plugins page
@@ -168,6 +239,12 @@ plugins/
 
 A subpath plugin exports its own `locale/*.json` and `icon` for display and is
 never read as a package of its own.
+
+The two quota widgets share one browser implementation: each Host half
+normalizes its provider's envelope into the same window shape (`percent` = the
+share USED, plus `resetsAt`), and `QUOTA_WIDGETS` in `client.js` names the route,
+the order and the window labels. A third provider is therefore a Host half, a
+`QUOTA_WIDGETS` entry, and two `PREFERENCES` rows — no new view code.
 
 ### Why there is a separate root row
 

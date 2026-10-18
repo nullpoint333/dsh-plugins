@@ -27,3 +27,21 @@
 
     - id: better-experience
       name: 'dsh-plugins/better-experience'
+
+    - id: minimax-quota
+      name: 'dsh-plugins/minimax-quota'
+      config:
+        # MiniMax's Chinese cluster. The international base is
+        # 'https://api.minimax.io'; both serve the same plan route.
+        endpoint: 'https://api.minimax.cn'
+        # Credential reference resolved through ctx.credentials, falling back
+        # to the same-named process environment variable. This must be the
+        # M Plan subscription key (`sk-...`), not a pay-as-you-go `sk-api-` key.
+        credentialRef: 'MINIMAX_CN_API_KEY'
+        # The plan entry carrying the text/image/audio allowance.
+        modelName: 'general'
+        # How long one upstream answer is reused across callers.
+        cacheMs: 5000
+        requestTimeoutMs: 15000
+        # How often the browser half may re-read on its own, in milliseconds.
+        uiRefreshMs: 300000

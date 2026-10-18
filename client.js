@@ -1,22 +1,25 @@
 /**
  * The browser half of the `dsh-plugins` collection, shared by every plugin's UI.
  *
- * Two contributions:
+ * Three contributions:
  *
- * - `opencode-go-usage` — under the composer it renders one compact control, the
- *   rolling 5-hour window as a ring, and opening it shows a popup with the weekly
- *   and monthly windows, when the figures were read, and a refresh action.
- *   Everything comes from the Host half's route, so this module never holds the
- *   API key. Reading is paced, not polled: the figures live in one store owned
- *   by the plugin (not by the component), so switching conversations re-renders
- *   from the cache instead of re-reading; they are re-read only once they have
- *   aged out, and one timer serves every mount.
- * - `better-experience` — a Settings page that holds this collection's global
- *   preferences. The first such preference is a desktop notification when the
- *   model finishes a turn. The toggle's state is held in `localStorage`; the
- *   runtime lives in the same page so it can use the shell's `useSessionStatus`
- *   hook to subscribe to the active session. The page stays mounted while the
- *   settings panel is open.
+ * - `opencode-go-usage` and `minimax-quota` — each renders one compact control
+ *   under the composer: the shortest window as a ring, with the remaining
+ *   windows, the read time and a refresh action in a popup. They share one
+ *   implementation, differing only in the route they read and the windows they
+ *   label, because each Host half normalizes its provider's envelope into the
+ *   same two-field window (`percent` = share USED, `resetsAt`). Everything comes
+ *   from the Host half's route, so this module never holds an API key.
+ *
+ *   Reading is paced, not polled: the figures live in one store owned by the
+ *   plugin (not by the component), so switching conversations re-renders from the
+ *   cache instead of re-reading; they are re-read only once they have aged out,
+ *   and one timer serves every mount. A widget the user has switched off is not
+ *   mounted at all, so its store has no subscribers and its timer stops.
+ * - `better-experience` — a Settings page holding this collection's global
+ *   preferences: whether each quota widget is shown, and whether a desktop
+ *   notification fires when a task ends. Values live in one shared store, so a
+ *   toggle takes effect immediately, with no reload.
  */
 window.__ModuleLoader__.load({
   id: 'dsh-plugins',
@@ -25,9 +28,6 @@ window.__ModuleLoader__.load({
     const h = React.createElement
     const { useCallback, useEffect, useMemo, useRef, useState } = React
 
-    /** Host-owned route, same origin as the page. */
-    const ENDPOINT = '/plugin/opencode-go-usage/quota'
-    const NS = 'opencode-go-usage'
     /** Used until the Host reports its own interval. */
     const DEFAULT_UI_REFRESH_MS = 5 * 60_000
     /** A nonsensical interval is ignored rather than obeyed. */
@@ -38,47 +38,117 @@ window.__ModuleLoader__.load({
     const VIEWPORT_MARGIN = 8
 
     /**
-     * OpenCode Go fixes each window against the model's monthly limit, so the
-     * share is a property of the plan and not of the current usage.
+     * One quota widget's identity. Both Host halves answer with the same
+     * normalized shape — `usage[windowKey] = { status, percent, resetsAt }`,
+     * where `percent` is the share USED — so the Client half needs no
+     * per-provider branch. `windows[0]` drives the ring; the rest fill the popup.
+     *
+     * `share` is optional and only meaningful where the plan itself defines the
+     * shorter window as a share of a longer one, as OpenCode Go does.
+     * `preference` names the Better experience toggle that governs this widget.
      */
-    const WINDOWS = [
-      { key: 'rolling', share: '20%' },
-      { key: 'weekly', share: '50%' },
-      { key: 'monthly', share: '100%' },
+    const QUOTA_WIDGETS = [
+      {
+        id: 'opencode-go-usage',
+        ns: 'opencode-go-usage',
+        endpoint: '/plugin/opencode-go-usage/quota',
+        order: 2,
+        preference: 'showQuota',
+        windows: [
+          { key: 'rolling', share: '20%' },
+          { key: 'weekly', share: '50%' },
+          { key: 'monthly', share: '100%' },
+        ],
+      },
+      {
+        id: 'minimax-quota',
+        ns: 'minimax-quota',
+        endpoint: '/plugin/minimax-quota/quota',
+        order: 3,
+        preference: 'showMinimaxQuota',
+        windows: [
+          { key: 'interval' },
+          { key: 'weekly' },
+        ],
+      },
     ]
 
-    const DICT = {
-      en: {
-        label: 'OpenCode Go limits',
-        rolling: '5h',
-        weekly: 'Week',
-        monthly: 'Month',
-        loading: 'reading…',
-        refresh: 'Refresh',
-        refreshing: 'Refreshing…',
-        close: 'Close',
-        updatedAt: 'read {time}',
-        never: 'no reset time reported',
-        ringTitle: '5-hour window · {share} of the monthly allowance · resets {reset} ({in} left)',
-        resetsAt: 'resets {time} · {in} left',
-        missingCredential: 'OPENCODE_GO_API_KEY is not configured',
-        unreachable: 'The Harness quota route did not answer',
+    /** Per-widget copy. A window's label is read from its own key. */
+    const DICTS = {
+      'opencode-go-usage': {
+        en: {
+          label: 'OpenCode Go limits',
+          rolling: '5h',
+          weekly: 'Week',
+          monthly: 'Month',
+          loading: 'reading…',
+          refresh: 'Refresh',
+          refreshing: 'Refreshing…',
+          close: 'Close',
+          updatedAt: 'read {time}',
+          never: 'no reset time reported',
+          unlimited: 'not metered',
+          ringTitle: '5-hour window · {share} of the monthly allowance · resets {reset} ({in} left)',
+          resetsAt: 'resets {time} · {in} left',
+          missingCredential: 'OPENCODE_GO_API_KEY is not configured',
+          unreachable: 'The Harness quota route did not answer',
+        },
+        zh: {
+          label: 'OpenCode Go 限额',
+          rolling: '小时',
+          weekly: '周',
+          monthly: '月',
+          loading: '读取中…',
+          refresh: '刷新',
+          refreshing: '刷新中…',
+          close: '关闭',
+          updatedAt: '读取于 {time}',
+          never: '未报告重置时间',
+          unlimited: '不计量',
+          ringTitle: '5 小时窗口 · 占月度额度 {share} · {reset} 重置（还有 {in}）',
+          resetsAt: '{time} 重置 · 还有 {in}',
+          missingCredential: '未配置 OPENCODE_GO_API_KEY',
+          unreachable: 'Harness 限额路由无响应',
+        },
       },
-      zh: {
-        label: 'OpenCode Go 限额',
-        rolling: '小时',
-        weekly: '周',
-        monthly: '月',
-        loading: '读取中…',
-        refresh: '刷新',
-        refreshing: '刷新中…',
-        close: '关闭',
-        updatedAt: '读取于 {time}',
-        never: '未报告重置时间',
-        ringTitle: '5 小时窗口 · 占月度额度 {share} · {reset} 重置（还有 {in}）',
-        resetsAt: '{time} 重置 · 还有 {in}',
-        missingCredential: '未配置 OPENCODE_GO_API_KEY',
-        unreachable: 'Harness 限额路由无响应',
+      'minimax-quota': {
+        en: {
+          label: 'MiniMax plan usage',
+          interval: '5h',
+          weekly: 'Week',
+          loading: 'reading…',
+          refresh: 'Refresh',
+          refreshing: 'Refreshing…',
+          close: 'Close',
+          updatedAt: 'read {time}',
+          never: 'no reset time reported',
+          unlimited: 'not metered',
+          /* MiniMax meters what is LEFT, so the popup states both readings. */
+          ringTitle: '5-hour window · {used} used · {remaining} left · resets {reset} ({in} left)',
+          resetsAt: 'resets {time} · {in} left · {remaining} left',
+          boost: 'weekly allowance boosted {factor}×',
+          missingCredential: 'MINIMAX_CN_API_KEY is not configured',
+          notSubscriptionKey: 'MINIMAX_CN_API_KEY is a pay-as-you-go key; the M Plan quota needs the subscription key',
+          unreachable: 'The Harness quota route did not answer',
+        },
+        zh: {
+          label: 'MiniMax 套餐额度',
+          interval: '5 小时',
+          weekly: '周',
+          loading: '读取中…',
+          refresh: '刷新',
+          refreshing: '刷新中…',
+          close: '关闭',
+          updatedAt: '读取于 {time}',
+          never: '未报告重置时间',
+          unlimited: '不计量',
+          ringTitle: '5 小时窗口 · 已用 {used} · 剩余 {remaining} · {reset} 重置（还有 {in}）',
+          resetsAt: '{time} 重置 · 还有 {in} · 剩余 {remaining}',
+          boost: '周额度提升 {factor}×',
+          missingCredential: '未配置 MINIMAX_CN_API_KEY',
+          notSubscriptionKey: 'MINIMAX_CN_API_KEY 是按量计费密钥；M Plan 额度需要订阅密钥',
+          unreachable: 'Harness 限额路由无响应',
+        },
       },
     }
 
@@ -105,6 +175,16 @@ window.__ModuleLoader__.load({
         statusOff: 'showQuotaStatusOff',
       },
       {
+        id: 'showMinimaxQuota',
+        storageKey: 'dsh-plugins.better-experience.show-minimax-quota',
+        default: true,
+        heading: 'displayHeading',
+        label: 'showMinimaxQuotaLabel',
+        description: 'showMinimaxQuotaDescription',
+        statusOn: 'showMinimaxQuotaStatusOn',
+        statusOff: 'showMinimaxQuotaStatusOff',
+      },
+      {
         id: 'notifyOnCompletion',
         storageKey: 'dsh-plugins.better-experience.notify-on-completion',
         /** Desktop notifications need an explicit grant, so this defaults off. */
@@ -126,6 +206,10 @@ window.__ModuleLoader__.load({
         showQuotaDescription: 'Shows the rolling 5-hour window as a ring below the composer; opening it reveals the weekly and monthly windows. Turning this off also stops the quota requests, since nothing is left to display them.',
         showQuotaStatusOn: 'On — the ring is shown below the composer.',
         showQuotaStatusOff: 'Off — the ring is hidden and no quota requests are made.',
+        showMinimaxQuotaLabel: 'Show the MiniMax plan usage',
+        showMinimaxQuotaDescription: 'Shows the M Plan\u2019s 5-hour window as a second ring below the composer, with the weekly window in the popup. Turning this off also stops its quota requests.',
+        showMinimaxQuotaStatusOn: 'On — the MiniMax ring is shown below the composer.',
+        showMinimaxQuotaStatusOff: 'Off — the MiniMax ring is hidden and no quota requests are made.',
         notifyHeading: 'Notifications',
         notifyLabel: 'Notify when a task completes',
         notifyDescription: 'Send a desktop notification when the model finishes a turn. The browser must grant the notification permission; once granted, the runtime is active while this settings page is open.',
@@ -148,6 +232,10 @@ window.__ModuleLoader__.load({
         showQuotaDescription: '在输入框下方以圆环显示 5 小时滚动窗口，点击可展开周、月额度。关闭后同时也停止额度请求——因为已经没有需要展示的地方。',
         showQuotaStatusOn: '已开启 — 输入框下方显示额度圆环。',
         showQuotaStatusOff: '已关闭 — 不显示额度圆环，也不会请求额度数据。',
+        showMinimaxQuotaLabel: '显示 MiniMax 套餐额度',
+        showMinimaxQuotaDescription: '在输入框下方以第二个圆环显示 M Plan 的 5 小时窗口，点击可展开周额度。关闭后同样会停止它的额度请求。',
+        showMinimaxQuotaStatusOn: '已开启 — 输入框下方显示 MiniMax 圆环。',
+        showMinimaxQuotaStatusOff: '已关闭 — 不显示 MiniMax 圆环，也不会请求额度数据。',
         notifyHeading: '通知',
         notifyLabel: '任务完成时发送通知',
         notifyDescription: '在模型完成一轮时发送桌面通知。浏览器需要授予通知权限；授予后，只要设置页保持打开，运行时就会持续生效。',
@@ -195,10 +283,17 @@ window.__ModuleLoader__.load({
       })
     }
 
+    /**
+     * A window the plan does not meter: nothing is consumed and no reset is
+     * meaningful. Both Host halves use the status `unlimited` for that.
+     */
+    const isUnlimited = (window) => String(window?.status ?? '').toLowerCase() === 'unlimited'
+
     /** A window turns warning near its ceiling and error once it is spent. */
     function toneOf(window) {
       const percent = typeof window?.percent === 'number' ? window.percent : null
       const status = String(window?.status ?? '').toLowerCase()
+      if (isUnlimited(window)) return 'var(--dsw-alias-label-secondary)'
       if (status !== '' && status !== 'ok' && status !== 'active') return 'var(--dsw-alias-state-error-primary)'
       if (percent !== null && percent >= 100) return 'var(--dsw-alias-state-error-primary)'
       if (percent !== null && percent >= 80) return 'var(--dsw-alias-state-warn-primary)'
@@ -209,19 +304,36 @@ window.__ModuleLoader__.load({
       return percent === null ? 0 : Math.min(100, Math.max(0, percent))
     }
 
+    /** How much of a window is LEFT, when the Host reported a used share. */
+    function remainingOf(window) {
+      const percent = typeof window?.percent === 'number' ? window.percent : null
+      if (percent === null) return null
+      return Math.min(100, Math.max(0, 100 - percent))
+    }
+
     function resetLine(window, now, t) {
       const at = localTime(window?.resetsAt)
       if (at === null) return null
       const left = countdown(window?.resetsAt, now)
-      return left === null ? at : fill(t('resetsAt'), { time: at, in: left })
+      if (left === null) return at
+      const remaining = remainingOf(window)
+      return fill(t('resetsAt'), {
+        time: at,
+        in: left,
+        /* Both readings travel together: providers differ on which one they
+           meter, and one of them is always the surprising number. */
+        remaining: remaining === null ? '—' : formatPercent(remaining),
+        used: formatPercent(typeof window?.percent === 'number' ? window.percent : null),
+      })
     }
 
     /**
-     * The plugin's one copy of the figures, created per activation and shared by
-     * every mount of the control.
-     * @param translate - the namespace translator, read at call time.
+     * One plugin's figures, created per activation and shared by every mount of
+     * its control.
+     * @param options - `endpoint` is the Host route to read, and `translate`
+     *   resolves the copy. The store itself is provider-agnostic.
      */
-    function createStore(translate) {
+    function createStore({ endpoint, translate }) {
       let snapshot = { phase: 'idle' }
       /** When this browser last completed a read, for ageing out the cache. */
       let readAt = 0
@@ -253,7 +365,7 @@ window.__ModuleLoader__.load({
         inFlight = (async () => {
           publish({ ...snapshot, phase: 'loading' })
           try {
-            const response = await fetch(ENDPOINT, {
+            const response = await fetch(endpoint, {
               headers: { accept: 'application/json' },
               cache: 'no-store',
             })
@@ -263,13 +375,18 @@ window.__ModuleLoader__.load({
               return
             }
             if (body.ok !== true) {
+              /* Keys the Host already localized; anything else is its own
+                 message, which is more specific than a generic fallback. */
+              const localized = body.code === 'missing-credential'
+                ? translate('missingCredential')
+                : body.code === 'not-a-subscription-key'
+                  ? translate('notSubscriptionKey')
+                  : undefined
               publish({
                 ...snapshot,
                 phase: 'error',
                 code: body.code,
-                message: body.code === 'missing-credential'
-                  ? translate('missingCredential')
-                  : String(body.message ?? `HTTP ${response.status}`),
+                message: localized ?? String(body.message ?? `HTTP ${response.status}`),
               })
               return
             }
@@ -278,7 +395,13 @@ window.__ModuleLoader__.load({
               startTimer()
             }
             readAt = Date.now()
-            publish({ phase: 'ready', usage: body.usage ?? {}, fetchedAt: body.fetchedAt })
+            publish({
+              phase: 'ready',
+              usage: body.usage ?? {},
+              fetchedAt: body.fetchedAt,
+              /* Only the MiniMax half reports these; both are optional. */
+              boostPermille: Number.isFinite(body.boostPermille) ? body.boostPermille : null,
+            })
           } catch {
             publish({ ...snapshot, phase: 'error', code: 'unreachable', message: translate('unreachable') })
           } finally {
@@ -329,6 +452,7 @@ window.__ModuleLoader__.load({
     }
 
     function WindowRow({ label, window, now, t }) {
+      const unlimited = isUnlimited(window)
       const percent = typeof window?.percent === 'number' ? window.percent : null
       const reset = resetLine(window, now, t)
       return h('div', { style: { display: 'grid', gap: 3 } }, [
@@ -346,7 +470,7 @@ window.__ModuleLoader__.load({
             },
           }, h('span', {
             style: {
-              position: 'absolute', inset: 0, width: `${shareOf(percent)}%`,
+              position: 'absolute', inset: 0, width: `${unlimited ? 0 : shareOf(percent)}%`,
               borderRadius: 2, background: toneOf(window),
             },
           })),
@@ -356,21 +480,29 @@ window.__ModuleLoader__.load({
               color: 'var(--dsw-alias-label-primary)', fontVariantNumeric: 'tabular-nums',
               minWidth: 34, textAlign: 'right',
             },
-          }, formatPercent(percent)),
+          }, unlimited ? t('unlimited') : formatPercent(percent)),
         ]),
         h('div', {
           key: 'reset',
           style: { fontSize: 10, color: 'var(--dsw-alias-label-secondary)' },
-        }, reset ?? t('never')),
+        }, unlimited ? t('never') : (reset ?? t('never'))),
       ])
     }
 
-    function QuotaControl({ t, store }) {
+    /**
+     * One plugin's compact quota control.
+     * @param widgets - `windows[0]` drives the ring; the rest fill the popup.
+     *   The list is identical in shape for every provider, so adding one is a
+     *   Host half plus a QUOTA_WIDGETS entry.
+     */
+    function QuotaControl({ t, store, windows, widgetId, boostLabel }) {
       const [open, setOpen] = useState(false)
       const [position, setPosition] = useState(null)
       const [, setRevision] = useState(0)
       const anchor = useRef(null)
       const popup = useRef(null)
+      const primary = windows[0]
+      const rest = windows.slice(1)
 
       /* The store outlives this mount, so a conversation switch re-renders from
          the cached figures and re-reads them only once they have aged out. */
@@ -425,13 +557,18 @@ window.__ModuleLoader__.load({
 
       const state = store.snapshot()
       const now = Date.now()
-      const rolling = state.usage?.rolling
+      const primaryWindow = state.usage?.[primary.key]
       const ringTitle = (() => {
-        const reset = localTime(rolling?.resetsAt)
-        const left = countdown(rolling?.resetsAt, now)
-        if (reset === null) return t('rolling')
+        const reset = localTime(primaryWindow?.resetsAt)
+        const left = countdown(primaryWindow?.resetsAt, now)
+        if (reset === null) return t(primary.key)
+        const remaining = remainingOf(primaryWindow)
         return fill(t('ringTitle'), {
-          share: WINDOWS[0].share, reset, in: left ?? '—',
+          share: primary.share ?? '—',
+          reset,
+          in: left ?? '—',
+          used: formatPercent(typeof primaryWindow?.percent === 'number' ? primaryWindow.percent : null),
+          remaining: remaining === null ? '—' : formatPercent(remaining),
         })
       })()
 
@@ -466,10 +603,23 @@ window.__ModuleLoader__.load({
             key: 'body',
             style: { color: 'var(--dsw-alias-state-warn-primary)' },
           }, state.message)
-          : h('div', { key: 'body', style: { display: 'grid', gap: 8 } }, [
-            h(WindowRow, { key: 'weekly', label: t('weekly'), window: state.usage?.weekly, now, t }),
-            h(WindowRow, { key: 'monthly', label: t('monthly'), window: state.usage?.monthly, now, t }),
-          ]),
+          : h('div', { key: 'body', style: { display: 'grid', gap: 8 } }, rest.map((window) =>
+            h(WindowRow, {
+              key: window.key,
+              label: t(window.key),
+              window: state.usage?.[window.key],
+              now,
+              t,
+            }))),
+
+        /* A plan that grants a boosted weekly allowance says so, because it
+           otherwise reads as a quota that failed to shrink. */
+        boostLabel === undefined || state.boostPermille === null || state.boostPermille === 1000
+          ? null
+          : h('div', {
+            key: 'boost',
+            style: { fontSize: 10, color: 'var(--dsw-alias-label-secondary)' },
+          }, boostLabel((state.boostPermille / 1000).toFixed(2).replace(/\.?0+$/, ''))),
 
         h('div', {
           key: 'foot',
@@ -517,20 +667,29 @@ window.__ModuleLoader__.load({
           ref: anchor,
           type: 'button',
           className: 'ocg-trigger',
+          /* A stable hook for testing and for inspecting the dock: both widgets
+             render the same markup, and their window labels can coincide. */
+          'data-quota-widget': widgetId,
           'aria-haspopup': 'dialog',
           'aria-expanded': open,
           title: ringTitle,
           onClick: () => setOpen((value) => !value),
         }, [
-          h('span', { key: 'label' }, t('rolling')),
-          h(Ring, { key: 'ring', percent: rolling?.percent ?? null, tone: toneOf(rolling) }),
+          h('span', { key: 'label' }, t(primary.key)),
+          h(Ring, {
+            key: 'ring',
+            percent: isUnlimited(primaryWindow) ? 0 : (primaryWindow?.percent ?? null),
+            tone: toneOf(primaryWindow),
+          }),
           h('span', {
             key: 'value',
             style: {
               color: 'var(--dsw-alias-label-primary)',
               fontVariantNumeric: 'tabular-nums',
             },
-          }, formatPercent(typeof rolling?.percent === 'number' ? rolling.percent : null)),
+          }, isUnlimited(primaryWindow)
+            ? t('unlimited')
+            : formatPercent(typeof primaryWindow?.percent === 'number' ? primaryWindow.percent : null)),
         ]),
 
         panel,
@@ -673,11 +832,11 @@ window.__ModuleLoader__.load({
      * a reload.
      */
     function BetterExperiencePage({ t, preferences }) {
-      /* Both reads subscribe this component to the store, so either toggle
-         re-renders the page — and, because the composer ring subscribes to the
-         same store, it follows along without a reload. */
+      /* One subscription covers every row on this page: the store publishes on
+         any change, and this hook's listener re-renders unconditionally. The
+         display rows then read their own values through `preferences.get`,
+         which is also why adding a preference needs no hook of its own. */
       const notifyEnabled = usePreference(preferences, 'notifyOnCompletion')
-      const showQuota = usePreference(preferences, 'showQuota')
       const capability = useMemo(notificationCapability, [notifyEnabled])
       const [testState, setTestState] = useState('idle')
       const [errorMessage, setErrorMessage] = useState(null)
@@ -749,19 +908,26 @@ window.__ModuleLoader__.load({
 
         h('p', { key: 'intro', className: 'bex-page__intro' }, t('sectionDescription')),
 
-        /* Display: whether the collection's visible surfaces are on. */
+        /* Display: whether the collection's visible surfaces are on. Every
+           preference whose heading is `displayHeading` renders here, so adding
+           another display toggle is a PREFERENCES entry plus its copy. */
         h('div', { key: 'display', className: 'bex-section' }, [
           h('h3', { key: 'heading', className: 'bex-section__heading' }, t('displayHeading')),
-          h(PreferenceRow, {
-            key: 'showQuota',
-            t,
-            label: t('showQuotaLabel'),
-            description: t('showQuotaDescription'),
-            status: showQuota ? t('showQuotaStatusOn') : t('showQuotaStatusOff'),
-            checked: showQuota,
-            disabled: false,
-            onChange: () => preferences.set('showQuota', !showQuota),
-          }),
+          ...PREFERENCES
+            .filter((preference) => preference.heading === 'displayHeading')
+            .map((preference) => {
+              const on = preferences.get(preference.id)
+              return h(PreferenceRow, {
+                key: preference.id,
+                t,
+                label: t(preference.label),
+                description: t(preference.description),
+                status: on ? t(preference.statusOn) : t(preference.statusOff),
+                checked: on,
+                disabled: false,
+                onChange: () => preferences.set(preference.id, !on),
+              })
+            }),
         ]),
 
         /* Notifications: the runtime is the page's test action for now. */
@@ -807,13 +973,20 @@ window.__ModuleLoader__.load({
       inject: ['slots', 'locale'],
       apply(ctx) {
         const locale = ctx.get('locale')
-        /* `bind` reads the active locale at call time, so one closure keeps
-           working across a locale switch; the raw key is the last resort for a
-           language this namespace has no dictionary for. */
-        const translate = locale === undefined ? undefined : locale.bind(NS)
-        const t = (key) => {
-          const localized = translate?.(key)
-          return localized === undefined || localized === key ? DICT.en[key] ?? key : localized
+
+        /**
+         * Build one widget's translator. `bind` reads the active locale at call
+         * time, so a single closure keeps working across a locale switch; the
+         * English dictionary is the last resort for a language this collection
+         * has no dictionary for.
+         */
+        const translatorFor = (ns) => {
+          const bound = locale === undefined ? undefined : locale.bind(ns)
+          const fallback = DICTS[ns]?.en ?? {}
+          return (key) => {
+            const localized = bound?.(key)
+            return localized === undefined || localized === key ? fallback[key] ?? key : localized
+          }
         }
 
         const beTranslate = locale === undefined ? undefined : locale.bind(BETTER_EXPERIENCE_NS)
@@ -825,42 +998,58 @@ window.__ModuleLoader__.load({
         }
 
         if (locale !== undefined) {
-          for (const [language, dict] of Object.entries(DICT)) {
-            ctx.effect(() => locale.register(NS, language, dict))
+          for (const [ns, dict] of Object.entries(DICTS)) {
+            for (const [language, copy] of Object.entries(dict)) {
+              ctx.effect(() => locale.register(ns, language, copy))
+            }
           }
           for (const [language, dict] of Object.entries(BETTER_EXPERIENCE_DICT)) {
             ctx.effect(() => locale.register(BETTER_EXPERIENCE_NS, language, dict))
           }
         }
 
-        /* One store for the whole activation: the control unmounts on every
-           conversation switch, and the figures must not follow it down. */
-        const store = createStore(t)
-
-        /* The preferences are shared by the dock (which reads `showQuota`) and
-           the settings page (which writes it), so both are the same object. */
+        /* The preferences are shared by the dock entries (which read them) and
+           the settings page (which writes them), so both are the same object. */
         const preferences = createPreferences()
 
         /**
-         * The dock entry. Hiding the ring is a real off switch, not just a
-         * hidden element: with nothing mounted the shared store has no
-         * subscribers, so its timer stops and no quota requests are made.
+         * One composer-dock entry per quota widget. Hiding a ring is a real off
+         * switch, not a hidden element: with nothing mounted that widget's store
+         * has no subscribers, so its timer stops and no requests are made.
          */
-        function QuotaDockEntry({ t: translate, store: quotaStore, preferences: prefs }) {
-          const visible = usePreference(prefs, 'showQuota')
-          if (!visible) return null
-          return h(QuotaControl, { t: translate, store: quotaStore })
+        function makeDockEntry({ t, store, widget }) {
+          return function QuotaDockEntry(props) {
+            const visible = usePreference(preferences, widget.preference)
+            if (!visible) return null
+            return h(QuotaControl, {
+              ...props,
+              t,
+              store,
+              widgetId: widget.id,
+              windows: widget.windows,
+              boostLabel: widget.boostLabel,
+            })
+          }
         }
 
-        ctx.slots.inject('conversation.composer.dock', () => ctx.slots.register({
-          name: 'conversation.composer.dock',
-          id: 'opencode-go-usage',
-          order: 2,
-          label: () => t('label'),
-        }, (props) => h(QuotaDockEntry, { ...props, t, store, preferences })))
+        for (const widget of QUOTA_WIDGETS) {
+          const t = translatorFor(widget.ns)
+          /* One store per widget for the whole activation: a control unmounts on
+             every conversation switch, and the figures must not follow it down. */
+          const store = createStore({ endpoint: widget.endpoint, translate: t })
+          const boostLabel = widget.ns === 'minimax-quota'
+            ? (factor) => fill(t('boost'), { factor })
+            : undefined
+          ctx.slots.inject('conversation.composer.dock', () => ctx.slots.register({
+            name: 'conversation.composer.dock',
+            id: widget.id,
+            order: widget.order,
+            label: () => t('label'),
+          }, makeDockEntry({ t, store, widget: { ...widget, boostLabel } })))
+        }
 
         /* The page is one component. Its values live in the shared preference
-           store, so a toggle here reaches the composer ring immediately. The
+           store, so a toggle here reaches the composer rings immediately. The
            owner passes the section's `close` and the standard seat; this
            component reads neither, because a root-scoped page must not call a
            session-scoped standard hook (see the note on the component). A
