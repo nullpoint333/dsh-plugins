@@ -25,6 +25,7 @@ const DEFAULTS = {
   credentialRef: 'OPENCODE_GO_API_KEY',
   cacheMs: 5000,
   requestTimeoutMs: 15000,
+  uiRefreshMs: 300_000,
   userAgent: 'deepseek-harness-opencode-go-usage/1.0',
 }
 
@@ -138,6 +139,10 @@ export function apply(ctx, config) {
       body: {
         ok: true,
         fetchedAt: new Date().toISOString(),
+        /* How often the browser half may re-read on its own. The figures do not
+           change faster than the upstream meters them, and a reader switching
+           conversations must not turn into a stream of requests. */
+        refreshMs: options.uiRefreshMs,
         usage,
       },
     }

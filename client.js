@@ -6,9 +6,15 @@
  * when the figures were read, and a refresh action. Everything comes from the
  * Host half's route, so this module never holds the API key.
  *
- * Nothing here polls. The figures load once on mount and change only when the
- * reader asks for a refresh, which is what makes the displayed read time worth
- * showing.
+ * Reading is paced, not polled:
+ *
+ * - The figures live in one store owned by the plugin, not by the component.
+ *   The composer dock is session-scoped, so switching conversations unmounts and
+ *   remounts the control; a per-component fetch would turn ordinary navigation
+ *   into a request stream. Mounting therefore re-reads only what has gone stale.
+ * - One timer serves every mount and runs only while something is mounted. The
+ *   Host reports the interval it allows, so it stays a configuration value.
+ * - Opening the popup never re-reads; only the refresh action forces one.
  */
 window.__ModuleLoader__.load({
   id: 'dsh-plugins',
@@ -20,6 +26,10 @@ window.__ModuleLoader__.load({
     /** Host-owned route, same origin as the page. */
     const ENDPOINT = '/plugin/opencode-go-usage/quota'
     const NS = 'opencode-go-usage'
+    /** Used until the Host reports its own interval. */
+    const DEFAULT_UI_REFRESH_MS = 5 * 60_000
+    /** A nonsensical interval is ignored rather than obeyed. */
+    const MIN_UI_REFRESH_MS = 30_000
     /** Popup geometry: a fixed width, lifted clear of the trigger. */
     const POPUP_WIDTH = 248
     const ANCHOR_GAP = 8
@@ -122,6 +132,94 @@ window.__ModuleLoader__.load({
       return left === null ? at : fill(t('resetsAt'), { time: at, in: left })
     }
 
+    /**
+     * The plugin's one copy of the figures, created per activation and shared by
+     * every mount of the control.
+     * @param translate - the namespace translator, read at call time.
+     */
+    function createStore(translate) {
+      let snapshot = { phase: 'idle' }
+      /** When this browser last completed a read, for ageing out the cache. */
+      let readAt = 0
+      let refreshMs = DEFAULT_UI_REFRESH_MS
+      let inFlight = null
+      let timer = null
+      const listeners = new Set()
+
+      const publish = (next) => {
+        snapshot = next
+        for (const listener of [...listeners]) listener()
+      }
+
+      const isStale = () => Date.now() - readAt >= refreshMs
+
+      const startTimer = () => {
+        if (timer !== null) clearInterval(timer)
+        timer = setInterval(() => { void read() }, refreshMs)
+      }
+
+      /**
+       * Read the quota unless the cached figures are still fresh.
+       * @param options - `force` ignores freshness, and is what the refresh
+       *   action uses.
+       */
+      function read({ force = false } = {}) {
+        if (inFlight !== null) return inFlight
+        if (!force && !isStale()) return Promise.resolve()
+        inFlight = (async () => {
+          publish({ ...snapshot, phase: 'loading' })
+          try {
+            const response = await fetch(ENDPOINT, {
+              headers: { accept: 'application/json' },
+              cache: 'no-store',
+            })
+            const body = await response.json().catch(() => null)
+            if (body === null) {
+              publish({ ...snapshot, phase: 'error', message: `HTTP ${response.status}` })
+              return
+            }
+            if (body.ok !== true) {
+              publish({
+                ...snapshot,
+                phase: 'error',
+                code: body.code,
+                message: body.code === 'missing-credential'
+                  ? translate('missingCredential')
+                  : String(body.message ?? `HTTP ${response.status}`),
+              })
+              return
+            }
+            if (Number.isFinite(body.refreshMs) && body.refreshMs >= MIN_UI_REFRESH_MS) {
+              refreshMs = body.refreshMs
+              startTimer()
+            }
+            readAt = Date.now()
+            publish({ phase: 'ready', usage: body.usage ?? {}, fetchedAt: body.fetchedAt })
+          } catch {
+            publish({ ...snapshot, phase: 'error', code: 'unreachable', message: translate('unreachable') })
+          } finally {
+            inFlight = null
+          }
+        })()
+        return inFlight
+      }
+
+      /** Subscribe one mount; the timer exists only while a mount does. */
+      const subscribe = (listener) => {
+        listeners.add(listener)
+        if (timer === null) startTimer()
+        return () => {
+          listeners.delete(listener)
+          if (listeners.size === 0 && timer !== null) {
+            clearInterval(timer)
+            timer = null
+          }
+        }
+      }
+
+      return { read, subscribe, snapshot: () => snapshot }
+    }
+
     /** One ring: a track plus the used share, starting at twelve o'clock. */
     function Ring({ percent, tone, size = 18 }) {
       const stroke = 2.5
@@ -183,46 +281,20 @@ window.__ModuleLoader__.load({
       ])
     }
 
-    function QuotaControl({ t }) {
-      const [state, setState] = useState({ phase: 'loading' })
+    function QuotaControl({ t, store }) {
       const [open, setOpen] = useState(false)
       const [position, setPosition] = useState(null)
+      const [, setRevision] = useState(0)
       const anchor = useRef(null)
       const popup = useRef(null)
 
-      const load = useCallback(async () => {
-        setState((current) => ({ phase: 'loading', usage: current.usage, fetchedAt: current.fetchedAt }))
-        try {
-          const response = await fetch(ENDPOINT, {
-            headers: { accept: 'application/json' },
-            cache: 'no-store',
-          })
-          const body = await response.json().catch(() => null)
-          if (body === null) {
-            setState({ phase: 'error', message: `HTTP ${response.status}` })
-            return
-          }
-          if (body.ok !== true) {
-            setState({
-              phase: 'error',
-              code: body.code,
-              message: body.code === 'missing-credential'
-                ? t('missingCredential')
-                : String(body.message ?? `HTTP ${response.status}`),
-            })
-            return
-          }
-          setState({ phase: 'ready', usage: body.usage ?? {}, fetchedAt: body.fetchedAt })
-        } catch {
-          setState({ phase: 'error', code: 'unreachable', message: t('unreachable') })
-        }
-      }, [t])
-
-      /* Read once. There is no polling and no refresh on visibility: the reader
-         decides when the figures are re-read, and the popup reports when. */
+      /* The store outlives this mount, so a conversation switch re-renders from
+         the cached figures and re-reads them only once they have aged out. */
       useEffect(() => {
-        load()
-      }, [load])
+        const unsubscribe = store.subscribe(() => setRevision((value) => value + 1))
+        void store.read()
+        return unsubscribe
+      }, [store])
 
       /* The popup is placed from the trigger's viewport rect, so an ancestor's
          overflow cannot clip it, and it follows the trigger while it moves. */
@@ -263,6 +335,11 @@ window.__ModuleLoader__.load({
         }
       }, [open])
 
+      const refresh = useCallback(() => {
+        void store.read({ force: true })
+      }, [store])
+
+      const state = store.snapshot()
       const now = Date.now()
       const rolling = state.usage?.rolling
       const ringTitle = (() => {
@@ -320,7 +397,7 @@ window.__ModuleLoader__.load({
           h('span', {
             key: 'read',
             style: { fontSize: 10, color: 'var(--dsw-alias-label-secondary)' },
-          }, state.phase === 'loading'
+          }, state.phase === 'loading' || state.phase === 'idle'
             ? t('loading')
             : state.phase === 'error'
               ? t('never')
@@ -331,7 +408,7 @@ window.__ModuleLoader__.load({
             className: 'ocg-btn',
             style: { marginLeft: 'auto' },
             disabled: state.phase === 'loading',
-            onClick: load,
+            onClick: refresh,
           }, state.phase === 'loading' ? t('refreshing') : t('refresh')),
         ]),
       ]) : null
@@ -395,12 +472,16 @@ window.__ModuleLoader__.load({
           }
         }
 
+        /* One store for the whole activation: the control unmounts on every
+           conversation switch, and the figures must not follow it down. */
+        const store = createStore(t)
+
         ctx.slots.inject('conversation.composer.dock', () => ctx.slots.register({
           name: 'conversation.composer.dock',
           id: 'opencode-go-usage',
           order: 2,
           label: () => t('label'),
-        }, (props) => h(QuotaControl, { ...props, t })))
+        }, (props) => h(QuotaControl, { ...props, t, store })))
       },
     }
   },

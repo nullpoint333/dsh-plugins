@@ -44,9 +44,12 @@ monthly windows as bars with their percentages and reset times, when the figures
 were last read, and a refresh action; the ring's tooltip carries the 5-hour
 window's reset time and countdown.
 
-**Nothing polls.** The figures are read once when the page loads and change only
-when you press **Refresh**, so the reported read time always says how current they
-are — opening the popup deliberately does not re-read them.
+**Reading is paced, not polled.** The figures are held per plugin rather than per
+view, so switching conversations re-renders them from the cache instead of
+re-reading; they are re-read only once they are older than `uiRefreshMs` (5 minutes
+by default), which is also the interval of the single timer that runs while the
+control is on screen. Opening the popup does not re-read — **Refresh** is the only
+thing that forces one.
 
 `GET https://opencode.ai/zen/go/v1/usage` returns:
 
@@ -76,6 +79,7 @@ profile's own `cordis.patch.yml`:
     credentialRef: 'OPENCODE_GO_API_KEY'
     cacheMs: 5000
     requestTimeoutMs: 15000
+    uiRefreshMs: 300000
 ```
 
 ## Repository layout
@@ -130,6 +134,13 @@ root, disabling it would take every other plugin's UI down with it.
    is no per-plugin browser bundle.
 5. `plugins/<name>/locale/{en,zh}.json` gives the plugin its own title and
    description in the Plugins page.
+6. **After editing a plugin file, republish before it can show.** The Host
+   snapshots a package's client entry when the bundle activates, so a lone edit to
+   `client.js` — or to a plugin's Host half — does not reach the running
+   composition on its own; the previous module keeps answering until the bundle is
+   composed again. Toggle the bundle off and on (the Plugins page, or
+   `plugin_manager` `set_bundle`), then reload the page so the browser takes the
+   new bundle.
 
 Two consequences to know before choosing this layout:
 
