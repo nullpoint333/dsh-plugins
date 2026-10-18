@@ -23,7 +23,7 @@ window.__ModuleLoader__.load({
   factory(require) {
     const React = require('react')
     const h = React.createElement
-    const { useCallback, useEffect, useMemo, useState } = React
+    const { useCallback, useEffect, useMemo, useRef, useState } = React
 
     /** Host-owned route, same origin as the page. */
     const ENDPOINT = '/plugin/opencode-go-usage/quota'
@@ -535,19 +535,26 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * The page itself. The shell provides one owner prop (`close`) to a
-     * `settings.section` registrant; the standard props documented on the
-     * slot are hooks the section's owner exposes inside its own React
-     * context, not props passed to this component. Trying to read them
-     * off `ownerProps` returned `undefined` and a previous revision
-     * of this file crashed on that — the page now reads no props from
-     * the owner at all. The runtime is also held for a later revision:
-     * v1 ships a working form and a "send a test notification" button,
-     * which is enough to confirm the permission grant and the API
-     * path on this machine.
+     * The page itself.
+     *
+     * Scope rule, learned the hard way: the renderer assembles a root entry's
+     * props with `standardKit`, which spreads the ROOT standard binding — so
+     * hooks such as `useSessions` and `useSessionStatus` really are present on
+     * the props object here. But a session-scoped hook has no source for a
+     * root-scoped entry, and the loader reports that as a `SlotAssemblyError`.
+     * The entry error boundary RETHROWS that class instead of containing it,
+     * so the whole page renders blank with nothing in the UI to explain why.
+     * A `settings.section` page is root-scoped: this component therefore calls
+     * only React's own hooks, and reads no standard hook at all. Session state
+     * belongs to a session-scoped slot, not to this page.
+     *
+     * v1 ships the form plus a "send a test notification" action, which
+     * confirms the permission grant and the API path on this machine. Firing
+     * on task completion needs a session-scoped seat and is deliberately not
+     * attempted from here.
      */
     function BetterExperiencePage({ t }) {
-      const [enabled, setEnabled] = useState(readNotifyEnabled)
+      const [enabled, setEnabled] = useState(() => readNotifyEnabled())
       const capability = useMemo(notificationCapability, [enabled])
       const onEnabledChange = useCallback((next) => {
         writeNotifyEnabled(next)

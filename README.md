@@ -184,6 +184,17 @@ root, disabling it would take every other plugin's UI down with it.
    preference to that section and store it under
    `localStorage['dsh-plugins.better-experience.<key>']` so the page stays
    the one place to manage collection-wide options.
+8. **Never call a standard `use*` hook whose scope does not match the slot.**
+   The renderer builds a root entry's props from the root standard binding
+   (`standardKit` in `dsh-client-ui-renderer`), so names such as
+   `useSessions` and `useSessionStatus` really are present as props. But a
+   *session*-scoped hook has no source for a *root*-scoped entry, and the
+   loader signals that with a `SlotAssemblyError` — which the entry error
+   boundary deliberately **rethrows** rather than containing. The result is
+   not a crashed row but a **blank page with no visible error**. A
+   `settings.section` page is root-scoped: use React's own hooks and the
+   entry's own inject face, and read session state from a session-scoped
+   slot instead.
 
 Two consequences to know before choosing this layout:
 
