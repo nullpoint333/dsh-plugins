@@ -79,6 +79,76 @@ If the company machine can only reach GitHub through an internal mirror, point
 git and proxy configuration, so the install path is the same as for any other
 repository your team clones.
 
+### Offline install (no internet on the target machine)
+
+Two paths work without any outbound traffic at install time. Both rely on
+`plugin_manager` using the same git on the host machine that the rest of
+Harness already uses, so a working git on PATH is the only prerequisite.
+
+**Local bare mirror of the repo** (preferred for a team that maintains its own
+plugins):
+
+```sh
+# On a machine that has internet, once:
+git clone --bare https://github.com/nullpoint333/dsh-plugins.git /srv/mirror/dsh-plugins.git
+git -C /srv/mirror/dsh-plugins.git update-server-info
+# Move /srv/mirror/dsh-plugins.git to a share the target can read.
+```
+
+On the target, point git at the local mirror and install by URL — the install
+flow is identical to the online path, and the git transport does not need
+network at install time because the remote resolves locally:
+
+```sh
+git config --global url."/srv/mirror/dsh-plugins.git".insteadOf https://github.com/nullpoint333/dsh-plugins
+# then in plugin_manager:
+{ "action": "install_bundle", "target": "github:nullpoint333/dsh-plugins" }
+```
+
+The `insteadOf` rule is the whole trick: the manager reads the URL and the
+host git rewrites it. The bundle's `git ls-remote` step — which the manager
+uses to verify the repository — runs against the mirror, not GitHub.
+
+**Single-file `git bundle`** (good for a one-time transfer by USB stick or a
+slow VPN):
+
+```sh
+# On the source machine, once, with all branches the target will need:
+git clone https://github.com/nullpoint333/dsh-plugins.git
+cd dsh-plugins
+git bundle create /tmp/dsh-plugins.bundle --all
+
+# Copy the file to the target.
+```
+
+On the target, clone from the bundle, then serve it as a bare repo for the
+manager:
+
+```sh
+git clone /path/to/dsh-plugins.bundle dsh-plugins
+git -C dsh-plugins bundle verify </path/to/dsh-plugins.bundle   # safety check
+# Make a bare mirror so the manager's `git ls-remote` works:
+git clone --bare dsh-plugins /srv/mirror/dsh-plugins.git
+git -C /srv/mirror/dsh-plugins.git update-server-info
+# then `git config --global url."file:///srv/mirror/...".insteadOf ...` and install.
+```
+
+The bundle is a single file the manager never sees directly — it only talks
+to git. So the **one** step that needs network is the `git clone` that
+produces the bare mirror; after that, every install runs offline.
+
+If your install is one-off, you can also point the mirror at a USB stick by
+using a `file://` URL in the `insteadOf` rule:
+
+```sh
+git config --global url."file:///mnt/usb/dsh-plugins.git".insteadOf https://github.com/nullpoint333/dsh-plugins
+```
+
+The bundle's `cordis.patch.yml`, `client.js`, `host.js`, and per-plugin
+directories are plain files — `git clone --bare` plus `update-server-info`
+gives `plugin_manager` everything it needs to read them without re-running
+JavaScript from a network.
+
 ## Plugins
 
 ### `opencode-go-usage`
