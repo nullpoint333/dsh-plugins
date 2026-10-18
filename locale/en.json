@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "OpenCode Go Limits",
+    "description": "Shows the OpenCode Go subscription's 5-hour, weekly and monthly quota below the composer, with each window's used share and reset time."
+  }
+}

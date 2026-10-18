@@ -1,0 +1,16 @@
+# The layer this bundle contributes to the desktop profile.
+# Every field is optional; the Host half applies the defaults below when a
+# field is absent, so overriding `config` from the profile's own patch layer
+# replaces only what you name.
+- insert:
+    - id: opencode-go-usage
+      name: 'dsh-opencode-go-usage'
+      config:
+        # Quota endpoint of the OpenCode Go subscription.
+        endpoint: 'https://opencode.ai/zen/go/v1/usage'
+        # Credential reference resolved through ctx.credentials, falling back
+        # to the same-named process environment variable.
+        credentialRef: 'OPENCODE_GO_API_KEY'
+        # How long one upstream answer is reused across page polls.
+        cacheMs: 5000
+        requestTimeoutMs: 15000

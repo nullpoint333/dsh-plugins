@@ -1,0 +1,9 @@
+# Installed dependents (the profile links this directory; never commit theirs)
+node_modules/
+
+# Packed tarballs from `npm pack` / `pnpm pack`
+*.tgz
+
+# Editor and OS noise
+.DS_Store
+Thumbs.db

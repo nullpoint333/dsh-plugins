@@ -1,0 +1,53 @@
+{
+  "name": "dsh-opencode-go-usage",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Shows the OpenCode Go subscription's 5-hour, weekly and monthly quota below the composer.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nullpoint333/dsh-opencode-go-usage.git"
+  },
+  "homepage": "https://github.com/nullpoint333/dsh-opencode-go-usage#readme",
+  "bugs": {
+    "url": "https://github.com/nullpoint333/dsh-opencode-go-usage/issues"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "cordis",
+    "opencode",
+    "opencode-go",
+    "quota",
+    "usage"
+  ],
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "README.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
+    }
+  }
+}
