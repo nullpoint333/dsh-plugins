@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "DSH 插件集合",
-    "description": "以单个 bundle 交付的 DeepSeek Harness 插件集合：目前包含 OpenCode Go 限额组件。"
+    "description": "以单个 bundle 交付的 DeepSeek Harness 插件集合：OpenCode Go 限额组件、一个集中存放全局偏好的设置页（首项是任务完成时的桌面通知），以及后续将持续加入的插件。"
   }
 }

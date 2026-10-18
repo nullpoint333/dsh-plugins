@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Better Experience",
+    "description": "Adds a Settings page that holds this collection's global preferences, and ships one of them today: a desktop notification when the model finishes a turn."
+  }
+}

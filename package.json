@@ -29,6 +29,9 @@
     "./opencode-go-usage": "./plugins/opencode-go-usage/index.js",
     "./opencode-go-usage/locale/*.json": "./plugins/opencode-go-usage/locale/*.json",
     "./opencode-go-usage/icon": "./plugins/opencode-go-usage/icon.svg",
+    "./better-experience": "./plugins/better-experience/index.js",
+    "./better-experience/locale/*.json": "./plugins/better-experience/locale/*.json",
+    "./better-experience/icon": "./plugins/better-experience/icon.svg",
     "./locale/*.json": "./locale/*.json",
     "./icon": "./icon.svg"
   },

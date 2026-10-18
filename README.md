@@ -6,6 +6,7 @@ plugins, delivered as **one bundle**.
 | Plugin | What it does |
 | --- | --- |
 | [`opencode-go-usage`](plugins/opencode-go-usage) | Shows the OpenCode Go subscription's 5-hour, weekly and monthly quota below the composer |
+| [`better-experience`](plugins/better-experience) | A Settings page that holds this collection's global preferences. Ships with one today: a desktop notification when the model finishes a turn. |
 
 ## Install
 
@@ -82,6 +83,39 @@ profile's own `cordis.patch.yml`:
     uiRefreshMs: 300000
 ```
 
+### `better-experience`
+
+This plugin owns the **Better experience** Settings page — a place for the
+collection's global preferences to live, so the next plugin that needs a
+preference does not have to invent its own page.
+
+The page carries one preference today:
+
+| Preference | Default | What it does |
+| --- | --- | --- |
+| Notify when a task completes | off | Sends a desktop notification when the model finishes a turn. The browser must grant the notification permission; once it has, the toggle is the only switch. |
+
+The page renders one row: a label, a description, a status line that
+explains what the current state means, and the toggle itself. Below the
+toggle, a **Send a test notification** action appears when the API is
+available, so the user can verify the OS-level permission and the runtime
+without waiting for a real task to end. The runtime lives on the page: the
+shell gives the section the `useSessionStatus` hook as one of its standard
+props, and the page subscribes to it; on every running → idle transition
+of the active session, it fires a `new Notification(t('notifTitle'), { body,
+tag: 'dsh-plugins:<sessionId>' })` if the toggle is on. The `tag` is the
+session id, so a fresh task on the same session replaces the previous
+notification rather than stacking a new one.
+
+State is held in `localStorage` under
+`dsh-plugins.better-experience.notify-on-completion`. The key is namespaced
+so future collection-wide preferences do not collide with this one.
+
+The Settings page mounts only while the settings panel is open, so
+notifications fire for the duration the user is in the panel. If you need
+notifications while the panel is closed, leave the panel open in a
+background tab.
+
 ## Repository layout
 
 The repository root **is** the package root, which is what makes
@@ -98,6 +132,10 @@ icon.svg
 plugins/
   opencode-go-usage/
     index.js                      Host half: upstream call + loopback route
+    locale/{en,zh}.json           this plugin's own row in the Plugins page
+    icon.svg
+  better-experience/
+    index.js                      Host half: empty (the page is browser-only)
     locale/{en,zh}.json           this plugin's own row in the Plugins page
     icon.svg
 ```
@@ -141,6 +179,11 @@ root, disabling it would take every other plugin's UI down with it.
    composed again. Toggle the bundle off and on (the Plugins page, or
    `plugin_manager` `set_bundle`), then reload the page so the browser takes the
    new bundle.
+7. **Global preferences go on the `better-experience` page, not on a new
+   page of their own.** Future plugins in this collection should add their
+   preference to that section and store it under
+   `localStorage['dsh-plugins.better-experience.<key>']` so the page stays
+   the one place to manage collection-wide options.
 
 Two consequences to know before choosing this layout:
 

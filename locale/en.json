@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "DSH plugins collection",
-    "description": "A collection of DeepSeek Harness plugins delivered as one bundle: an OpenCode Go quota widget today, more to come."
+    "description": "A collection of DeepSeek Harness plugins delivered as one bundle: an OpenCode Go quota widget, a Settings page for shared preferences (starting with a desktop notification when a task ends), and more to come."
   }
 }
